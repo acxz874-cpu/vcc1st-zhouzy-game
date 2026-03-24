@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>像素地牢 · 法师清怪</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+    background:#0a0a0f; display:flex; align-items:center; justify-content:center;
+    height:100vh; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;
+}
+canvas {
+    image-rendering:pixelated; image-rendering:crisp-edges;
+    border:2px solid #2a2a3a; border-radius:4px;
+    max-width:100vw; max-height:100vh;
+}
+#loading {
+    position:fixed; top:0; left:0; width:100%; height:100%;
+    background:#0a0a0f; display:flex; align-items:center; justify-content:center;
+    flex-direction:column; z-index:100; color:#888; font-size:14px; letter-spacing:2px;
+}
+#loading .bar { width:200px; height:4px; background:#1a1a2a; border-radius:2px; margin-top:12px; }
+#loading .fill { height:100%; background:#6b8cff; border-radius:2px; width:0%; transition:width 0.2s; }
+</style>
+</head>
+<body>
+
+<div id="loading">
+    <div>加载素材中...</div>
+    <div class="bar"><div class="fill" id="loadBar"></div></div>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+/* ================================================================
+   2D复古像素RPG · 法师清怪闯关
+   ================================================================ */
+
+// ===== 常量 =====
+const CANVAS_W = 960;
+const CANVAS_H = 540;
+const PLAYER_SPEED = 3;
+const GOBLIN_SPEED = 1.2;
+const ATTACK_RANGE = 90;        // 攻击判定范围（像素）
+const GOBLIN_HP = 3;            // 哥布林需要被打3次
+const SPRITE_SCALE = 0.18;      // 角色缩放（800px原图→~144px显示）
+const GOBLIN_SCALE = 0.15;      // 哥布林缩放
+const FLOOR_Y_1 = 512;          // 第一层地面Y（下层走廊，红线参考~95%）
+const FLOOR_Y_2 = 205;          // 第二层地面Y（上层走廊，红线参考~38%）
+
+// ===== 资源加载 =====
+const assets = {};
+const toLoad = [];
+
+function regImg(key, src) {
+    toLoad.push({ key, src });
+}
+
+// 法师序列帧
+for (let i = 1; i <= 6; i++) regImg(`mage-idle-${i}`, `assets/sprites/mage-idle/${i}.png`);
+for (let i = 1; i <= 6; i++) regImg(`mage-attack-${i}`, `assets/sprites/mage-attack/${i}.png`);
+for (let i = 1; i <= 3; i++) regImg(`mage-move-${i}`, `assets/sprites/mage-move/${i}.png`);
+// 哥布林序列帧
+for (let i = 1; i <= 3; i++) regImg(`goblin-move-${i}`, `assets/sprites/goblin-move/${i}.png`);
+// 地图
+regImg('dungeon-1', 'assets/maps/dungeon-1.jpg');
+
+function loadAll() {
+    return new Promise((resolve) => {
+        let loaded = 0;
+        const bar = document.getElementById('loadBar');
+        for (const item of toLoad) {
+            const img = new Image();
+            img.onload = () => {
+                assets[item.key] = img;
+                loaded++;
+                bar.style.width = (loaded / toLoad.length * 100) + '%';
+                if (loaded === toLoad.length) resolve();
+            };
+            img.onerror = () => {
+                console.warn('Failed to load:', item.src);
+                loaded++;
+                bar.style.width = (loaded / toLoad.length * 100) + '%';
+                if (loaded === toLoad.length) resolve();
+            };
+            img.src = item.src;
+        }
+    });
+}
+
+// ===== 输入 =====
+const keys = {};
+window.addEventListener('keydown', e => { keys[e.code] = true; });
+window.addEventListener('keyup', e => { keys[e.code] = false; });
+let mouseClicked = false;
+window.addEventListener('mousedown', () => { mouseClicked = true; });
+
+// ===== Canvas =====
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+cvs.width = CANVAS_W;
+cvs.height = CANVAS_H;
+
+// ===== 精灵动画类 =====
+class SpriteAnim {
+    constructor(frames, fps = 8, loop = true) {
+        this.frames = frames;   // [Image, ...]
+        this.fps = fps;
+        this.loop = loop;
+        this.idx = 0;
+        this.timer = 0;
+        this.done = false;
+    }
+    reset() { this.idx = 0; this.timer = 0; this.done = false; }
+    update(dt) {
+        if (this.done) return;
+        this.timer += dt;
+        if (this.timer >= 1 / this.fps) {
+            this.timer -= 1 / this.fps;
+            this.idx++;
+            if (this.idx >= this.frames.length) {
+                if (this.loop) { this.idx = 0; }
+                else { this.idx = this.frames.length - 1; this.done = true; }
+            }
+        }
+    }
+    getFrame() { return this.frames[this.idx]; }
+}
+
+// ===== 玩家法师 =====
+const player = {
+    x: 100,
+    y: FLOOR_Y_1,
+    facing: 1,        // 1=右, -1=左
+    state: 'idle',     // idle | move | attack
+    anims: {},
+    currentAnim: null,
+    attackHitChecked: false,  // 本次攻击是否已判定命中
+    idleCooldown: 5.0,       // 待机动画冷却计时器
+    idlePlaying: false,      // 待机动画是否正在播放
+
+    init() {
+        this.anims.idle = new SpriteAnim(
+            Array.from({length:6}, (_,i) => assets[`mage-idle-${i+1}`]), 6, false);  // 不循环，播一次停
+        this.anims.move = new SpriteAnim(
+            Array.from({length:3}, (_,i) => assets[`mage-move-${i+1}`]), 8);
+        this.anims.attack = new SpriteAnim(
+            Array.from({length:6}, (_,i) => assets[`mage-attack-${i+1}`]), 10, false);
+        this.currentAnim = this.anims.idle;
+    },
+
+    setState(s) {
+        if (this.state === s && s !== 'idle') return;
+        // 攻击中不能打断
+        if (this.state === 'attack' && !this.anims.attack.done) return;
+
+        if (s !== 'idle') {
+            // 切换到非idle状态时重置idle冷却
+            this.idleCooldown = 5.0;
+            this.idlePlaying = false;
+        }
+
+        this.state = s;
+        if (s === 'move') {
+            this.currentAnim = this.anims.move;
+            // move是循环的，不需要每次reset
+        } else if (s === 'attack') {
+            this.currentAnim = this.anims.attack;
+            this.currentAnim.reset();
+            this.attackHitChecked = false;
+        }
+        // idle状态在update中单独处理
+    },
+
+    update(dt) {
+        // 攻击动画结束后回到idle
+        if (this.state === 'attack' && this.anims.attack.done) {
+            this.state = 'idle';
+            this.idleCooldown = 5.0;
+            this.idlePlaying = false;
+        }
+
+        // 输入处理（攻击中不能移动）
+        if (this.state !== 'attack') {
+            let moving = false;
+            if (keys['ArrowLeft'] || keys['KeyA']) {
+                this.x -= PLAYER_SPEED;
+                this.facing = -1;
+                moving = true;
+            }
+            if (keys['ArrowRight'] || keys['KeyD']) {
+                this.x += PLAYER_SPEED;
+                this.facing = 1;
+                moving = true;
+            }
+
+            // 攻击输入
+            if (keys['Space'] || mouseClicked) {
+                mouseClicked = false;
+                this.setState('attack');
+            } else {
+                this.setState(moving ? 'move' : 'idle');
+            }
+        }
+        mouseClicked = false;
+
+        // 待机状态：5秒冷却后播一次动画，其余时间显示第一帧
+        if (this.state === 'idle') {
+            if (!this.idlePlaying) {
+                this.idleCooldown -= dt;
+                if (this.idleCooldown <= 0) {
+                    // 触发一次待机动画
+                    this.idlePlaying = true;
+                    this.anims.idle.reset();
+                }
+                // 冷却中显示第一帧
+                this.currentAnim = this.anims.idle;
+                this.anims.idle.idx = 0;
+            } else {
+                // 播放待机动画
+                this.currentAnim = this.anims.idle;
+                this.anims.idle.update(dt);
+                if (this.anims.idle.done) {
+                    // 播完一次，重置冷却
+                    this.idlePlaying = false;
+                    this.idleCooldown = 5.0;
+                }
+            }
+        } else {
+            this.currentAnim.update(dt);
+        }
+
+        // 攻击判定（在攻击动画第3帧时判定）
+        if (this.state === 'attack' && !this.attackHitChecked && this.anims.attack.idx >= 2) {
+            this.attackHitChecked = true;
+            this.doAttackHit();
+        }
+
+        // 限制在地图范围内（第一层不限制右侧，允许走出切换场景）
+        if (this.x < 30) this.x = 30;
+    },
+
+    doAttackHit() {
+        // 判定正前方范围内的哥布林
+        const currentGoblins = game.getCurrentGoblins();
+        for (const g of currentGoblins) {
+            if (g.dead) continue;
+            const dx = g.x - this.x;
+            // 必须在正前方
+            if (this.facing === 1 && dx > 0 && dx < ATTACK_RANGE) {
+                g.takeHit();
+            } else if (this.facing === -1 && dx < 0 && dx > -ATTACK_RANGE) {
+                g.takeHit();
+            }
+        }
+    },
+
+    draw(ctx) {
+        const frame = this.currentAnim.getFrame();
+        if (!frame) return;
+        const w = frame.width * SPRITE_SCALE;
+        const h = frame.height * SPRITE_SCALE;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if (this.facing === -1) ctx.scale(-1, 1);
+        ctx.drawImage(frame, -w / 2, -h, w, h);
+        ctx.restore();
+    }
+};
+
+// ===== 哥布林 =====
+class Goblin {
+    constructor(x, y, patrolMin, patrolMax) {
+        this.x = x;
+        this.y = y;
+        this.patrolMin = patrolMin;
+        this.patrolMax = patrolMax;
+        this.dir = 1;
+        this.hp = GOBLIN_HP;
+        this.dead = false;
+        this.flashTimer = 0;   // 受击闪烁
+        this.anim = new SpriteAnim(
+            Array.from({length:3}, (_,i) => assets[`goblin-move-${i+1}`]), 6);
+    }
+
+    takeHit() {
+        this.hp--;
+        this.flashTimer = 0.25;
+        if (this.hp <= 0) {
+            this.dead = true;
+            game.checkWin();
+        }
+    }
+
+    update(dt) {
+        if (this.dead) return;
+        // 巡逻移动
+        this.x += GOBLIN_SPEED * this.dir;
+        if (this.x >= this.patrolMax) { this.x = this.patrolMax; this.dir = -1; }
+        if (this.x <= this.patrolMin) { this.x = this.patrolMin; this.dir = 1; }
+        // 受击闪烁
+        if (this.flashTimer > 0) this.flashTimer -= dt;
+        this.anim.update(dt);
+    }
+
+    draw(ctx) {
+        if (this.dead) return;
+        // 受击闪烁效果
+        if (this.flashTimer > 0 && Math.floor(this.flashTimer * 20) % 2 === 0) return;
+
+        const frame = this.anim.getFrame();
+        if (!frame) return;
+        const w = frame.width * GOBLIN_SCALE;
+        const h = frame.height * GOBLIN_SCALE;
+        ctx.save();
+        ctx.translate(this.x, this.y);
+        if (this.dir === -1) ctx.scale(-1, 1);
+        ctx.drawImage(frame, -w / 2, -h, w, h);
+        ctx.restore();
+    }
+}
+
+// ===== 游戏主控 =====
+const game = {
+    state: 'title',    // title | play | transition | clear | nextLevel
+    currentLayer: 1,   // 当前层 1 or 2
+    level: 1,
+    totalKills: 0,
+    goblinsL1: [],
+    goblinsL2: [],
+    transTimer: 0,
+    clearTimer: 0,
+    mapImg: null,
+
+    init() {
+        this.mapImg = assets['dungeon-1'];
+        player.init();
+        this.startLevel();
+    },
+
+    startLevel() {
+        this.currentLayer = 1;
+        this.totalKills = 0;
+        player.x = 100;
+        player.y = FLOOR_Y_1;
+        player.state = 'idle';
+        player.currentAnim = player.anims.idle;
+        player.facing = 1;
+
+        // 第一层2只哥布林（下层走廊）
+        this.goblinsL1 = [
+            new Goblin(350, FLOOR_Y_1, 150, 500),
+            new Goblin(700, FLOOR_Y_1, 500, 900),
+        ];
+        // 第二层2只哥布林（上层走廊）
+        this.goblinsL2 = [
+            new Goblin(300, FLOOR_Y_2, 100, 450),
+            new Goblin(680, FLOOR_Y_2, 450, 880),
+        ];
+    },
+
+    getCurrentGoblins() {
+        return this.currentLayer === 1 ? this.goblinsL1 : this.goblinsL2;
+    },
+
+    checkWin() {
+        const allDead = [...this.goblinsL1, ...this.goblinsL2].every(g => g.dead);
+        if (allDead) {
+            this.state = 'clear';
+            this.clearTimer = 2.0;
+        }
+    },
+
+    update(dt) {
+        if (this.state === 'title') {
+            if (keys['Space'] || keys['Enter'] || mouseClicked) {
+                mouseClicked = false;
+                this.state = 'play';
+            }
+            return;
+        }
+
+        if (this.state === 'clear') {
+            this.clearTimer -= dt;
+            if (this.clearTimer <= 0) {
+                this.level++;
+                this.state = 'play';
+                this.startLevel();
+            }
+            return;
+        }
+
+        if (this.state === 'transition') {
+            this.transTimer -= dt;
+            if (this.transTimer <= 0) {
+                this.state = 'play';
+            }
+            return;
+        }
+
+        // play状态
+        player.update(dt);
+
+        // 当前层哥布林更新
+        const goblins = this.getCurrentGoblins();
+        for (const g of goblins) g.update(dt);
+
+        // 场景切换判定：走出右侧边界进入第二层
+        if (this.currentLayer === 1 && player.x > CANVAS_W + 20) {
+            this.currentLayer = 2;
+            player.x = 30;
+            player.y = FLOOR_Y_2;
+            this.state = 'transition';
+            this.transTimer = 0.3;
+        }
+
+        // 第二层走出左侧 → 返回第一层右侧
+        if (this.currentLayer === 2 && player.x < -20) {
+            this.currentLayer = 1;
+            player.x = CANVAS_W - 50;
+            player.y = FLOOR_Y_1;
+            this.state = 'transition';
+            this.transTimer = 0.3;
+        }
+
+        // 第二层限制不能走出右侧
+        if (this.currentLayer === 2 && player.x > CANVAS_W - 30) {
+            player.x = CANVAS_W - 30;
+        }
+    },
+
+    draw(ctx) {
+        // 清屏
+        ctx.fillStyle = '#0a0a0f';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        if (this.state === 'title') {
+            this.drawTitle(ctx);
+            return;
+        }
+
+        // 绘制地图背景
+        if (this.mapImg) {
+            ctx.drawImage(this.mapImg, 0, 0, CANVAS_W, CANVAS_H);
+        }
+
+        // 层级指示暗化效果 — 突出当前层
+        if (this.currentLayer === 1) {
+            // 暗化上层
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H / 2 - 10);
+        } else {
+            // 暗化下层
+            ctx.fillStyle = 'rgba(0,0,0,0.35)';
+            ctx.fillRect(0, CANVAS_H / 2 + 10, CANVAS_W, CANVAS_H / 2);
+        }
+
+        // 绘制当前层哥布林
+        const goblins = this.getCurrentGoblins();
+        for (const g of goblins) g.draw(ctx);
+
+        // 绘制玩家
+        player.draw(ctx);
+
+        // HUD
+        this.drawHUD(ctx);
+
+        // 过渡效果
+        if (this.state === 'transition') {
+            const alpha = this.transTimer / 0.3;
+            ctx.fillStyle = `rgba(0,0,0,${alpha * 0.6})`;
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+        }
+
+        // 通关提示
+        if (this.state === 'clear') {
+            ctx.fillStyle = 'rgba(0,0,0,0.6)';
+            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+            this.drawPixelText(ctx, '通关成功！进入下一关', CANVAS_W / 2, CANVAS_H / 2 - 10,
+                '#ffd700', 24, 'center');
+            this.drawPixelText(ctx, `第 ${this.level} 关完成`, CANVAS_W / 2, CANVAS_H / 2 + 25,
+                '#aaa', 14, 'center');
+        }
+    },
+
+    drawTitle(ctx) {
+        // 背景
+        if (this.mapImg) {
+            ctx.globalAlpha = 0.4;
+            ctx.drawImage(this.mapImg, 0, 0, CANVAS_W, CANVAS_H);
+            ctx.globalAlpha = 1;
+        }
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
+
+        this.drawPixelText(ctx, '像素地牢', CANVAS_W / 2, CANVAS_H / 2 - 60, '#e0c070', 36, 'center');
+        this.drawPixelText(ctx, '法师清怪闯关', CANVAS_W / 2, CANVAS_H / 2 - 20, '#a0a0b0', 16, 'center');
+
+        // 闪烁提示
+        if (Math.floor(Date.now() / 600) % 2 === 0) {
+            this.drawPixelText(ctx, '按 空格 开始游戏', CANVAS_W / 2, CANVAS_H / 2 + 40, '#8888aa', 14, 'center');
+        }
+
+        // 操作说明
+        this.drawPixelText(ctx, '← → 移动　空格/鼠标 攻击', CANVAS_W / 2, CANVAS_H / 2 + 80, '#555', 11, 'center');
+        this.drawPixelText(ctx, '击杀所有哥布林通关', CANVAS_W / 2, CANVAS_H / 2 + 100, '#555', 11, 'center');
+    },
+
+    drawHUD(ctx) {
+        if (this.state === 'clear') return;
+        const killed = [...this.goblinsL1, ...this.goblinsL2].filter(g => g.dead).length;
+        const total = this.goblinsL1.length + this.goblinsL2.length;
+
+        // 左上角信息
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(8, 8, 160, 50);
+        ctx.strokeStyle = 'rgba(120,120,160,0.3)';
+        ctx.strokeRect(8, 8, 160, 50);
+
+        this.drawPixelText(ctx, `第 ${this.level} 关`, 16, 26, '#c0b080', 13, 'left');
+        this.drawPixelText(ctx, `哥布林 ${killed}/${total}`, 16, 46, '#cc6666', 12, 'left');
+
+        // 当前层提示
+        const layerText = this.currentLayer === 1 ? '地牢下层' : '地牢上层';
+        this.drawPixelText(ctx, layerText, CANVAS_W - 16, 26, 'rgba(200,200,220,0.5)', 12, 'right');
+    },
+
+    drawPixelText(ctx, text, x, y, color, size, align) {
+        ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
+        ctx.textAlign = align || 'left';
+        ctx.textBaseline = 'middle';
+        // 描边
+        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
+        ctx.lineWidth = 3;
+        ctx.strokeText(text, x, y);
+        // 填充
+        ctx.fillStyle = color;
+        ctx.fillText(text, x, y);
+    }
+};
+
+// ===== 主循环 =====
+let lastTime = 0;
+
+function loop(time) {
+    requestAnimationFrame(loop);
+    const dt = Math.min((time - lastTime) / 1000, 0.05);
+    lastTime = time;
+
+    game.update(dt);
+    game.draw(ctx);
+}
+
+// ===== 启动 =====
+loadAll().then(() => {
+    document.getElementById('loading').style.display = 'none';
+    game.init();
+    requestAnimationFrame(loop);
+});
+</script>
+</body>
+</html>
