@@ -311,10 +311,22 @@ const SKILL_SCALE = 0.2;
 const skillEffects = [];
 
 function spawnSkillEffect(x, y, dir) {
-    const ex = x + dir * 80;
+    // 锁定射程内最近的敌人
+    let targetX = x + dir * 80; // 默认前方80px
+    let minDist = Infinity;
+    const goblins = game.currentLayer === 1 ? game.goblinsL1 : game.goblinsL2;
+    for (const g of goblins) {
+        if (g.dead || g.dying) continue;
+        const d = Math.abs(g.x - x);
+        if (d < PROJECTILE_RANGE && d < minDist) { minDist = d; targetX = g.x; }
+    }
+    if (game.boss && game.boss.active && !game.boss.dead) {
+        const d = Math.abs(game.boss.x - x);
+        if (d < PROJECTILE_RANGE && d < minDist) { minDist = d; targetX = game.boss.x; }
+    }
     skillEffects.push({
-        x: ex, y: y, alive: true, hit1Done: false, hit2Done: false,
-        anim: new SpriteAnim(Array.from({length:5},(_,i)=>assets[`mage-skill-${i+1}`]),6,false)
+        x: targetX, y: y, alive: true, hit1Done: false, hit2Done: false,
+        anim: new SpriteAnim(Array.from({length:5},(_,i)=>assets[`mage-skill-${i+1}`]),10,false)
     });
 }
 
