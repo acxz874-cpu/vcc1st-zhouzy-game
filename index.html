@@ -17,13 +17,22 @@
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
     background:#0a0a0f; display:flex; align-items:center; justify-content:center;
-    height:100vh; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;
+    height:100vh; width:100vw; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;
     touch-action:none; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
+}
+/* 竖屏时整体旋转90度模拟横屏 */
+@media screen and (orientation:portrait) {
+    body {
+        width:100vh; height:100vw;
+        transform:rotate(90deg);
+        transform-origin:top left;
+        position:absolute; top:0; left:100vw;
+    }
 }
 canvas {
     image-rendering:pixelated; image-rendering:crisp-edges;
     border:2px solid #2a2a3a; border-radius:4px;
-    max-width:100vw; max-height:100vh;
+    max-width:100%; max-height:100%;
 }
 #loading {
     position:fixed; top:0; left:0; width:100%; height:100%;
@@ -119,7 +128,7 @@ const GAP_LEFT = 448;
 const GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
-const ASSET_VER = '5';  // 素材版本号，更新后递增以破坏缓存
+const ASSET_VER = '6';  // 素材版本号，更新后递增以破坏缓存
 const assets = {};
 const toLoad = [];
 
