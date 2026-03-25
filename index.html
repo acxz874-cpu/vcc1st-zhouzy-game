@@ -2,13 +2,14 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>像素地牢 · 法师清怪</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body {
     background:#0a0a0f; display:flex; align-items:center; justify-content:center;
     height:100vh; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;
+    touch-action:none; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
 }
 canvas {
     image-rendering:pixelated; image-rendering:crisp-edges;
@@ -22,6 +23,24 @@ canvas {
 }
 #loading .bar { width:200px; height:4px; background:#1a1a2a; border-radius:2px; margin-top:12px; }
 #loading .fill { height:100%; background:#6b8cff; border-radius:2px; width:0%; transition:width 0.2s; }
+
+/* 触控按钮 */
+#touch-controls { display:none; position:fixed; bottom:0; left:0; right:0; height:140px; z-index:50; pointer-events:none; }
+.touch-group { position:absolute; bottom:20px; display:flex; gap:12px; pointer-events:auto; }
+.touch-group.left { left:20px; }
+.touch-group.right { right:20px; }
+.touch-btn {
+    width:64px; height:64px; border-radius:50%; border:2px solid rgba(255,255,255,0.3);
+    background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.5);
+    display:flex; align-items:center; justify-content:center;
+    font-size:22px; font-weight:bold; line-height:1;
+    -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+}
+.touch-btn.active { background:rgba(255,255,255,0.25); border-color:rgba(255,255,255,0.6); color:rgba(255,255,255,0.9); }
+.touch-btn.btn-jump { background:rgba(100,200,100,0.12); border-color:rgba(100,200,100,0.35); }
+.touch-btn.btn-jump.active { background:rgba(100,200,100,0.35); border-color:rgba(100,200,100,0.7); }
+.touch-btn.btn-atk { background:rgba(100,150,255,0.12); border-color:rgba(100,150,255,0.35); }
+.touch-btn.btn-atk.active { background:rgba(100,150,255,0.35); border-color:rgba(100,150,255,0.7); }
 </style>
 </head>
 <body>
@@ -32,6 +51,17 @@ canvas {
 </div>
 
 <canvas id="game"></canvas>
+
+<div id="touch-controls">
+    <div class="touch-group left">
+        <div class="touch-btn btn-left" data-key="ArrowLeft">◀</div>
+        <div class="touch-btn btn-right" data-key="ArrowRight">▶</div>
+    </div>
+    <div class="touch-group right">
+        <div class="touch-btn btn-jump" data-key="Space">跳</div>
+        <div class="touch-btn btn-atk" data-key="KeyJ">攻</div>
+    </div>
+</div>
 
 <script>
 /* ================================================================
@@ -130,6 +160,49 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 let mouseClicked = false;
 window.addEventListener('mousedown', () => { mouseClicked = true; });
+
+// ===== 触控支持 =====
+const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (isTouchDevice) {
+    document.getElementById('touch-controls').style.display = 'block';
+}
+
+// 触控按钮绑定（支持多点触控）
+document.querySelectorAll('.touch-btn').forEach(btn => {
+    const keyCode = btn.dataset.key;
+
+    btn.addEventListener('touchstart', e => {
+        e.preventDefault();
+        btn.classList.add('active');
+        if (!keys[keyCode]) justPressed[keyCode] = true;
+        keys[keyCode] = true;
+    }, { passive: false });
+
+    btn.addEventListener('touchend', e => {
+        e.preventDefault();
+        btn.classList.remove('active');
+        keys[keyCode] = false;
+    }, { passive: false });
+
+    btn.addEventListener('touchcancel', e => {
+        btn.classList.remove('active');
+        keys[keyCode] = false;
+    });
+});
+
+// 画布触摸开始游戏/重试（标题和失败界面）
+cvs.addEventListener('touchstart', e => {
+    e.preventDefault();
+    if (game.state === 'title') {
+        justPressed['Space'] = true;
+        keys['Space'] = true;
+        setTimeout(() => { keys['Space'] = false; }, 100);
+    } else if (game.state === 'gameover' && game.gameoverTimer > 1.0) {
+        justPressed['Space'] = true;
+        keys['Space'] = true;
+        setTimeout(() => { keys['Space'] = false; }, 100);
+    }
+}, { passive: false });
 
 function consumeKey(code) {
     if (justPressed[code]) { justPressed[code] = false; return true; }
@@ -859,7 +932,7 @@ const game = {
             this.drawPixelText(ctx, '你被击败了', CANVAS_W / 2, CANVAS_H / 2 - 15,
                 '#cc3333', 26, 'center');
             if (this.gameoverTimer > 1.0 && Math.floor(Date.now() / 500) % 2 === 0) {
-                this.drawPixelText(ctx, '按 空格 重新挑战', CANVAS_W / 2, CANVAS_H / 2 + 25,
+                this.drawPixelText(ctx, isTouchDevice ? '点击屏幕重新挑战' : '按 空格 重新挑战', CANVAS_W / 2, CANVAS_H / 2 + 25,
                     '#888', 14, 'center');
             }
         }
@@ -878,10 +951,10 @@ const game = {
         this.drawPixelText(ctx, '法师清怪闯关', CANVAS_W / 2, CANVAS_H / 2 - 20, '#a0a0b0', 16, 'center');
 
         if (Math.floor(Date.now() / 600) % 2 === 0) {
-            this.drawPixelText(ctx, '按 空格 开始游戏', CANVAS_W / 2, CANVAS_H / 2 + 40, '#8888aa', 14, 'center');
+            this.drawPixelText(ctx, isTouchDevice ? '点击屏幕开始' : '按 空格 开始游戏', CANVAS_W / 2, CANVAS_H / 2 + 40, '#8888aa', 14, 'center');
         }
 
-        this.drawPixelText(ctx, '← → 移动　空格 跳跃　J/鼠标 攻击', CANVAS_W / 2, CANVAS_H / 2 + 80, '#555', 11, 'center');
+        this.drawPixelText(ctx, isTouchDevice ? '左侧方向移动　右侧跳跃/攻击' : '← → 移动　空格 跳跃　J/鼠标 攻击', CANVAS_W / 2, CANVAS_H / 2 + 80, '#555', 11, 'center');
         this.drawPixelText(ctx, '击杀所有哥布林通关', CANVAS_W / 2, CANVAS_H / 2 + 100, '#555', 11, 'center');
     },
 
