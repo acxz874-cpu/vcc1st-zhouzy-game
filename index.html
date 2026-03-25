@@ -590,7 +590,8 @@ class SkeletonKnight {
 
         const dx = player.x - this.x;
         const dist = Math.abs(dx);
-        this.dir = dx > 0 ? 1 : -1;
+        // 冲刺中不改变方向（直线移动）
+        if (this.state !== 'dash') this.dir = dx > 0 ? 1 : -1;
 
         if (this.state === 'dash') {
             // 冲刺移动
@@ -635,6 +636,7 @@ class SkeletonKnight {
                 // 追向层切换出口
                 const targetX = bossLayer === 1 ? CANVAS_W + 20 : -20;
                 this.x += BOSS_MOVE_SPEED * (targetX > this.x ? 1 : -1);
+                this.currentAnim = this.anims.move; this.currentAnim.update(dt);
                 if (bossLayer === 1 && this.x > CANVAS_W + 20) {
                     // 切到二层
                     this.y = FLOOR_Y_2; this.x = 30; this.grounded = true; this.falling = false;
@@ -650,9 +652,10 @@ class SkeletonKnight {
                 } else if (dist > 200 && this.dashCooldown <= 0) {
                     this.state = 'dash'; this.dashStartX = this.x;
                     this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                } else {
+                    this.currentAnim = this.anims.move; this.currentAnim.update(dt);
                 }
             }
-            this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             if (this.x < 30) this.x = 30;
             if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
         }
