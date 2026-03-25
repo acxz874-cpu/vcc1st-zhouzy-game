@@ -1059,7 +1059,7 @@ const game = {
             this.shakeTimer -= dt;
             if (this.shakeTimer <= 0) {
                 this.bossPhase = 'fighting';
-                this.boss.spawn(this.currentLayer);
+                this.boss.spawn(1); // 固定在一层刷新
             }
         }
 
