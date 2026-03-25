@@ -78,7 +78,8 @@ const GAP_RIGHT = 510;
 const assets = {};
 const toLoad = [];
 
-function regImg(key, src) { toLoad.push({ key, src }); }
+const CACHE_BUST = 'v=' + Date.now();
+function regImg(key, src) { toLoad.push({ key, src: src + '?' + CACHE_BUST }); }
 
 // 法师序列帧
 for (let i = 1; i <= 6; i++) regImg(`mage-idle-${i}`, `assets/sprites/mage-idle/${i}.png`);
@@ -96,21 +97,22 @@ regImg('dungeon-1', 'assets/maps/dungeon-1.jpg');
 function loadAll() {
     return new Promise((resolve) => {
         let loaded = 0;
+        const total = toLoad.length;
         const bar = document.getElementById('loadBar');
+        const loadingText = document.querySelector('#loading div');
+
+        function done() {
+            loaded++;
+            bar.style.width = (loaded / total * 100) + '%';
+            loadingText.textContent = `加载素材中... (${loaded}/${total})`;
+            if (loaded >= total) resolve();
+        }
+
         for (const item of toLoad) {
             const img = new Image();
-            img.onload = () => {
-                assets[item.key] = img;
-                loaded++;
-                bar.style.width = (loaded / toLoad.length * 100) + '%';
-                if (loaded === toLoad.length) resolve();
-            };
-            img.onerror = () => {
-                console.warn('Failed to load:', item.src);
-                loaded++;
-                bar.style.width = (loaded / toLoad.length * 100) + '%';
-                if (loaded === toLoad.length) resolve();
-            };
+            img.crossOrigin = 'anonymous';
+            img.onload = () => { assets[item.key] = img; done(); };
+            img.onerror = () => { console.warn('Failed:', item.src); done(); };
             img.src = item.src;
         }
     });
