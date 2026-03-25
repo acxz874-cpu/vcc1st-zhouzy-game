@@ -817,7 +817,7 @@ class SkeletonKnight {
             this.x += BOSS_DASH_SPEED * this.dir;
             this.currentAnim = this.anims.dash; this.currentAnim.update(dt);
             // 冲刺途中伤害判定（可多次检测但只命中一次）
-            if (dist < 50 && !player.doubleJumping && !this._dashHitDone) {
+            if (dist < 50 && !player.doubleJumping && !this._dashHitDone && bossLayer === game.currentLayer) {
                 this._dashHitDone = true;
                 player.takeDamage(BOSS_DASH_DMG);
             }
@@ -836,11 +836,11 @@ class SkeletonKnight {
             // 两段攻击判定
             if (this.anims.attack.idx >= 1 && !this._atkHit1) {
                 this._atkHit1 = true;
-                if (dist < BOSS_ATK_RANGE && !playerJumping) player.takeDamage(BOSS_ATK_DMG);
+                if (dist < BOSS_ATK_RANGE && !playerJumping && bossLayer === game.currentLayer) player.takeDamage(BOSS_ATK_DMG);
             }
             if (this.anims.attack.idx >= 3 && !this._atkHit2) {
                 this._atkHit2 = true;
-                if (dist < BOSS_ATK_RANGE && !playerJumping) player.takeDamage(BOSS_ATK_DMG);
+                if (dist < BOSS_ATK_RANGE && !playerJumping && bossLayer === game.currentLayer) player.takeDamage(BOSS_ATK_DMG);
             }
             if (this.currentAnim.done) {
                 this.state = 'move'; this.atkCooldown = 2.0;
