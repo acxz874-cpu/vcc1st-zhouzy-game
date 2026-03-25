@@ -122,7 +122,7 @@ const JUMP_VELOCITY = -8, GRAVITY = 0.35;
 const GAP_LEFT = 448, GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
-const ASSET_VER = '10';
+const ASSET_VER = '11';
 const assets = {};
 const toLoad = [];
 function regImg(key, src) { toLoad.push({ key, src: src + '?v=' + ASSET_VER }); }
@@ -144,6 +144,7 @@ for (let i = 1; i <= 4; i++) regImg(`boss-attack-${i}`, `assets/sprites/boss-att
 for (let i = 1; i <= 5; i++) regImg(`mage-skill-${i}`, `assets/sprites/mage-skill/${i}.png`);
 // 地图
 regImg('dungeon-1', 'assets/maps/dungeon-1.jpg');
+regImg('dungeon-2', 'assets/maps/dungeon-2.jpg');
 
 function loadAll() {
     return new Promise((resolve) => {
@@ -993,10 +994,13 @@ const game = {
     goblinsL1: [], goblinsL2: [],
     boss: null, bossPhase: 'inactive', // inactive|shaking|entering|fighting
     shakeTimer: 0, shakeIntensity: 0,
-    clearTimer: 0, gameoverTimer: 0, mapImg: null,
+    clearTimer: 0, gameoverTimer: 0, mapImg: null, mapImg2: null,
+    sceneTransition: 0, // 0=地牢1, 1=地牢2, 渐变中间值
+    fallingDebris: [], // 落石/砂砾粒子
 
     init() {
         this.mapImg = assets['dungeon-1'];
+        this.mapImg2 = assets['dungeon-2'];
         player.init();
         this.boss = new SkeletonKnight();
         this.boss.init();
@@ -1008,6 +1012,7 @@ const game = {
         player.facing = 1; player.currentAnim = player.anims.idle;
         projectiles.length = 0; floatingTexts.length = 0; potions.length = 0;
         this.bossPhase = 'inactive'; this.shakeTimer = 0;
+        this.sceneTransition = 0; this.fallingDebris = [];
         this.boss.active = false; this.boss.dead = false; this.boss.dying = false;
         // 一层3只哥布林
         this.goblinsL1 = [
@@ -1057,10 +1062,35 @@ const game = {
         // 震荡阶段
         if (this.bossPhase === 'shaking') {
             this.shakeTimer -= dt;
+            // 场景从地牢1渐变到地牢2（3秒内完成）
+            this.sceneTransition = Math.min(1, this.sceneTransition + dt / 3.0);
+            // 生成落石/砂砾粒子
+            for (let k = 0; k < 3; k++) {
+                if (Math.random() < 0.4) {
+                    const isRock = Math.random() < 0.3;
+                    this.fallingDebris.push({
+                        x: Math.random() * CANVAS_W,
+                        y: -10 - Math.random() * 30,
+                        vy: 1 + Math.random() * 3,
+                        vx: (Math.random() - 0.5) * 0.5,
+                        size: isRock ? (4 + Math.random() * 8) : (1 + Math.random() * 3),
+                        color: isRock ? '#665544' : '#998877',
+                        rot: Math.random() * Math.PI * 2,
+                        rotSpeed: (Math.random() - 0.5) * 3,
+                    });
+                }
+            }
             if (this.shakeTimer <= 0) {
                 this.bossPhase = 'fighting';
-                this.boss.spawn(1); // 固定在一层刷新
+                this.sceneTransition = 1;
+                this.boss.spawn(1);
             }
+        }
+        // 更新落石粒子
+        for (let i = this.fallingDebris.length - 1; i >= 0; i--) {
+            const d = this.fallingDebris[i];
+            d.y += d.vy; d.x += d.vx; d.vy += 0.15; d.rot += d.rotSpeed * 0.016;
+            if (d.y > CANVAS_H + 20) this.fallingDebris.splice(i, 1);
         }
 
         player.update(dt);
@@ -1101,7 +1131,45 @@ const game = {
 
         if (this.state==='title') { this.drawTitle(ctx); ctx.restore(); return; }
 
-        if (this.mapImg) ctx.drawImage(this.mapImg,0,0,CANVAS_W,CANVAS_H);
+        // 场景渐变绘制
+        if (this.sceneTransition <= 0) {
+            if (this.mapImg) ctx.drawImage(this.mapImg,0,0,CANVAS_W,CANVAS_H);
+        } else if (this.sceneTransition >= 1) {
+            if (this.mapImg2) ctx.drawImage(this.mapImg2,0,0,CANVAS_W,CANVAS_H);
+        } else {
+            // 渐变混合
+            if (this.mapImg) ctx.drawImage(this.mapImg,0,0,CANVAS_W,CANVAS_H);
+            if (this.mapImg2) {
+                ctx.globalAlpha = this.sceneTransition;
+                ctx.drawImage(this.mapImg2,0,0,CANVAS_W,CANVAS_H);
+                ctx.globalAlpha = 1;
+            }
+        }
+
+        // 落石/砂砾粒子
+        for (const d of this.fallingDebris) {
+            ctx.save();
+            ctx.translate(d.x, d.y);
+            ctx.rotate(d.rot);
+            ctx.fillStyle = d.color;
+            const hs = d.size / 2;
+            if (d.size > 5) {
+                // 石块：不规则多边形
+                ctx.beginPath();
+                ctx.moveTo(-hs, -hs*0.6);
+                ctx.lineTo(hs*0.4, -hs);
+                ctx.lineTo(hs, hs*0.3);
+                ctx.lineTo(hs*0.2, hs);
+                ctx.lineTo(-hs*0.7, hs*0.6);
+                ctx.closePath();
+                ctx.fill();
+                ctx.strokeStyle = '#44332a'; ctx.lineWidth = 0.5; ctx.stroke();
+            } else {
+                // 砂砾：小方块
+                ctx.fillRect(-hs, -hs, d.size, d.size);
+            }
+            ctx.restore();
+        }
 
         for (const g of this.goblinsL1) g.draw(ctx);
         for (const g of this.goblinsL2) g.draw(ctx);
