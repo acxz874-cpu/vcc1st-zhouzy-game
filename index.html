@@ -51,18 +51,6 @@ canvas {
 .touch-btn.btn-atk { background:rgba(100,150,255,0.12); border-color:rgba(100,150,255,0.35); }
 .touch-btn.btn-atk.active { background:rgba(100,150,255,0.35); border-color:rgba(100,150,255,0.7); }
 
-/* 竖屏提示遮罩 */
-#rotate-hint {
-    display:none; position:fixed; top:0; left:0; width:100%; height:100%;
-    background:#0a0a0f; z-index:200;
-    flex-direction:column; align-items:center; justify-content:center;
-    color:#888; font-size:16px; letter-spacing:2px;
-}
-#rotate-hint .icon { font-size:48px; margin-bottom:16px; animation:rotateAnim 2s ease-in-out infinite; }
-@keyframes rotateAnim { 0%,100%{transform:rotate(0deg)} 50%{transform:rotate(90deg)} }
-@media screen and (orientation:portrait) {
-    #rotate-hint { display:flex !important; }
-}
 </style>
 </head>
 <body>
@@ -70,11 +58,6 @@ canvas {
 <div id="loading">
     <div>加载素材中...</div>
     <div class="bar"><div class="fill" id="loadBar"></div></div>
-</div>
-
-<div id="rotate-hint">
-    <div class="icon">📱</div>
-    <div>请横置手机进行游戏</div>
 </div>
 
 <canvas id="game"></canvas>
