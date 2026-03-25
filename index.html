@@ -20,7 +20,6 @@ body {
     height:100vh; width:100vw; font-family:'Microsoft YaHei',sans-serif; overflow:hidden;
     touch-action:none; -webkit-touch-callout:none; -webkit-user-select:none; user-select:none;
 }
-/* 竖屏时整体旋转90度模拟横屏 */
 @media screen and (orientation:portrait) {
     body {
         width:100vh; height:100vw;
@@ -41,8 +40,6 @@ canvas {
 }
 #loading .bar { width:200px; height:4px; background:#1a1a2a; border-radius:2px; margin-top:12px; }
 #loading .fill { height:100%; background:#6b8cff; border-radius:2px; width:0%; transition:width 0.2s; }
-
-/* 触控按钮 */
 #touch-controls { display:none; position:fixed; bottom:0; left:0; right:0; height:140px; z-index:50; pointer-events:none; }
 .touch-group { position:absolute; bottom:20px; display:flex; gap:12px; pointer-events:auto; }
 .touch-group.left { left:20px; }
@@ -59,18 +56,14 @@ canvas {
 .touch-btn.btn-jump.active { background:rgba(100,200,100,0.35); border-color:rgba(100,200,100,0.7); }
 .touch-btn.btn-atk { background:rgba(100,150,255,0.12); border-color:rgba(100,150,255,0.35); }
 .touch-btn.btn-atk.active { background:rgba(100,150,255,0.35); border-color:rgba(100,150,255,0.7); }
-
 </style>
 </head>
 <body>
-
 <div id="loading">
     <div>加载素材中...</div>
     <div class="bar"><div class="fill" id="loadBar"></div></div>
 </div>
-
 <canvas id="game"></canvas>
-
 <div id="touch-controls">
     <div class="touch-group left">
         <div class="touch-btn btn-left" data-key="ArrowLeft">◀</div>
@@ -81,69 +74,64 @@ canvas {
         <div class="touch-btn btn-atk" data-key="KeyJ">攻</div>
     </div>
 </div>
-
 <script>
 /* ================================================================
-   2D复古像素RPG · 法师清怪闯关 v2
+   2D复古像素RPG · 法师清怪闯关 v3 — BOSS战
    ================================================================ */
 
 // ===== 常量 =====
-const CANVAS_W = 960;
-const CANVAS_H = 540;
+const CANVAS_W = 960, CANVAS_H = 540;
 const PLAYER_SPEED = 3;
-const GOBLIN_SPEED = 1.2;
-const GOBLIN_CHASE_SPEED = 2.0;
-const SPRITE_SCALE = 0.18;
-const GOBLIN_SCALE = 0.15;
-const EFFECT_SCALE = 0.12;
+const GOBLIN_SPEED = 1.2, GOBLIN_CHASE_SPEED = 2.0;
+const SPRITE_SCALE = 0.18, GOBLIN_SCALE = 0.15, EFFECT_SCALE = 0.12;
+const BOSS_SCALE = 0.18;
 
-// 精灵图底部空白补偿（实际像素检测：法师82px, 哥布林78px空白）
-const MAGE_FOOT_OFFSET = 82 * SPRITE_SCALE;    // ≈14.8px
-const GOBLIN_FOOT_OFFSET = 78 * GOBLIN_SCALE;  // ≈11.7px
+// 精灵图底部空白补偿
+const MAGE_FOOT_OFFSET = 82 * SPRITE_SCALE;
+const GOBLIN_FOOT_OFFSET = 78 * GOBLIN_SCALE;
+const BOSS_FOOT_OFFSET = 86 * BOSS_SCALE;  // move/dash 1000x1000, attack 1000x1300, 底部空白~86px
 
-// 地面Y坐标（像素级精确检测红线位置）
-const FLOOR_Y_1 = 471;          // 第一层（下层）红线底部
-const FLOOR_Y_2 = 202;          // 第二层（上层）红线底部
+// 地面Y
+const FLOOR_Y_1 = 471, FLOOR_Y_2 = 202;
 
 // HP与伤害
-const PLAYER_MAX_HP = 100;
+const PLAYER_MAX_HP = 200;
 const GOBLIN_MAX_HP = 75;
-const PLAYER_DMG = 25;
-const PLAYER_CRIT_DMG = 50;
-const CRIT_CHANCE = 0.2;
+const PLAYER_DMG = 25, PLAYER_CRIT_DMG = 35, CRIT_CHANCE = 0.2;
 const GOBLIN_DMG = 20;
+const BOSS_MAX_HP = 400;
+const BOSS_DASH_DMG = 40, BOSS_ATK_DMG = 10; // 两段各10，合计20
 
 // 战斗参数
-const AGGRO_RANGE = 200;        // 仇恨触发距离
-const GOBLIN_ATK_RANGE = 50;    // 哥布林攻击距离
-const PROJECTILE_SPEED = 6;     // 弹射速度
-const PROJECTILE_RANGE = 270;   // 射程（原90*3）
+const AGGRO_RANGE = 200, GOBLIN_ATK_RANGE = 50;
+const PROJECTILE_SPEED = 6, PROJECTILE_RANGE = 270;
+const BOSS_MOVE_SPEED = 2.2, BOSS_DASH_SPEED = 10, BOSS_ATK_RANGE = 70;
 
-// 跳跃参数
-const JUMP_VELOCITY = -8;
-const GRAVITY = 0.35;
+// 跳跃
+const JUMP_VELOCITY = -8, GRAVITY = 0.35;
 
-// 二层地面断裂区域（像素级精确检测蓝色方块位置）
-const GAP_LEFT = 448;
-const GAP_RIGHT = 520;
+// 断裂
+const GAP_LEFT = 448, GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
-const ASSET_VER = '6';  // 素材版本号，更新后递增以破坏缓存
+const ASSET_VER = '7';
 const assets = {};
 const toLoad = [];
-
 function regImg(key, src) { toLoad.push({ key, src: src + '?v=' + ASSET_VER }); }
 
-// 法师序列帧
+// 法师
 for (let i = 1; i <= 6; i++) regImg(`mage-idle-${i}`, `assets/sprites/mage-idle/${i}.png`);
 for (let i = 1; i <= 6; i++) regImg(`mage-attack-${i}`, `assets/sprites/mage-attack/${i}.png`);
 for (let i = 1; i <= 3; i++) regImg(`mage-move-${i}`, `assets/sprites/mage-move/${i}.png`);
-// 法师攻击效果
 for (let i = 1; i <= 4; i++) regImg(`mage-effect-${i}`, `assets/sprites/mage-effect/${i}.png`);
-// 哥布林序列帧
+// 哥布林
 for (let i = 1; i <= 3; i++) regImg(`goblin-move-${i}`, `assets/sprites/goblin-move/${i}.png`);
 for (let i = 1; i <= 6; i++) regImg(`goblin-attack-${i}`, `assets/sprites/goblin-attack/${i}.png`);
 for (let i = 1; i <= 4; i++) regImg(`goblin-death-${i}`, `assets/sprites/goblin-death/${i}.png`);
+// 骷髅骑士BOSS
+for (let i = 1; i <= 4; i++) regImg(`boss-move-${i}`, `assets/sprites/boss-move/${i}.png`);
+for (let i = 1; i <= 8; i++) regImg(`boss-dash-${i}`, `assets/sprites/boss-dash/${i}.png`);
+for (let i = 1; i <= 4; i++) regImg(`boss-attack-${i}`, `assets/sprites/boss-attack/${i}.png`);
 // 地图
 regImg('dungeon-1', 'assets/maps/dungeon-1.jpg');
 
@@ -153,14 +141,12 @@ function loadAll() {
         const total = toLoad.length;
         const bar = document.getElementById('loadBar');
         const loadingText = document.querySelector('#loading div');
-
         function done() {
             loaded++;
             bar.style.width = (loaded / total * 100) + '%';
             loadingText.textContent = `加载素材中... (${loaded}/${total})`;
             if (loaded >= total) resolve();
         }
-
         for (const item of toLoad) {
             const img = new Image();
             img.onload = () => { assets[item.key] = img; done(); };
@@ -170,72 +156,35 @@ function loadAll() {
     });
 }
 
-// ===== 横屏锁定 =====
-try {
-    if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => {});
-    }
-} catch(e) {}
+// ===== 横屏 =====
+try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(() => {}); } catch(e) {}
 
 // ===== 输入 =====
-const keys = {};
-const justPressed = {};
-window.addEventListener('keydown', e => {
-    if (!keys[e.code]) justPressed[e.code] = true;
-    keys[e.code] = true;
-});
+const keys = {}, justPressed = {};
+window.addEventListener('keydown', e => { if (!keys[e.code]) justPressed[e.code] = true; keys[e.code] = true; });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 let mouseClicked = false;
 window.addEventListener('mousedown', () => { mouseClicked = true; });
-
-function consumeKey(code) {
-    if (justPressed[code]) { justPressed[code] = false; return true; }
-    return false;
-}
+function consumeKey(code) { if (justPressed[code]) { justPressed[code] = false; return true; } return false; }
 
 // ===== Canvas =====
 const cvs = document.getElementById('game');
 const ctx = cvs.getContext('2d');
-cvs.width = CANVAS_W;
-cvs.height = CANVAS_H;
+cvs.width = CANVAS_W; cvs.height = CANVAS_H;
 
-// ===== 触控支持 =====
+// ===== 触控 =====
 const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
-if (isTouchDevice) {
-    document.getElementById('touch-controls').style.display = 'block';
-}
-
+if (isTouchDevice) document.getElementById('touch-controls').style.display = 'block';
 document.querySelectorAll('.touch-btn').forEach(btn => {
-    const keyCode = btn.dataset.key;
-
-    btn.addEventListener('touchstart', e => {
-        e.preventDefault();
-        btn.classList.add('active');
-        if (!keys[keyCode]) justPressed[keyCode] = true;
-        keys[keyCode] = true;
-    }, { passive: false });
-
-    btn.addEventListener('touchend', e => {
-        e.preventDefault();
-        btn.classList.remove('active');
-        keys[keyCode] = false;
-    }, { passive: false });
-
-    btn.addEventListener('touchcancel', e => {
-        btn.classList.remove('active');
-        keys[keyCode] = false;
-    });
+    const kc = btn.dataset.key;
+    btn.addEventListener('touchstart', e => { e.preventDefault(); btn.classList.add('active'); if (!keys[kc]) justPressed[kc] = true; keys[kc] = true; }, { passive: false });
+    btn.addEventListener('touchend', e => { e.preventDefault(); btn.classList.remove('active'); keys[kc] = false; }, { passive: false });
+    btn.addEventListener('touchcancel', () => { btn.classList.remove('active'); keys[kc] = false; });
 });
-
 cvs.addEventListener('touchstart', e => {
     e.preventDefault();
-    if (game.state === 'title') {
-        justPressed['Space'] = true;
-        keys['Space'] = true;
-        setTimeout(() => { keys['Space'] = false; }, 100);
-    } else if (game.state === 'gameover' && game.gameoverTimer > 1.0) {
-        justPressed['Space'] = true;
-        keys['Space'] = true;
+    if (game.state === 'title' || (game.state === 'gameover' && game.gameoverTimer > 1.0)) {
+        justPressed['Space'] = true; keys['Space'] = true;
         setTimeout(() => { keys['Space'] = false; }, 100);
     }
 }, { passive: false });
@@ -243,12 +192,8 @@ cvs.addEventListener('touchstart', e => {
 // ===== 精灵动画类 =====
 class SpriteAnim {
     constructor(frames, fps = 8, loop = true) {
-        this.frames = frames;
-        this.fps = fps;
-        this.loop = loop;
-        this.idx = 0;
-        this.timer = 0;
-        this.done = false;
+        this.frames = frames; this.fps = fps; this.loop = loop;
+        this.idx = 0; this.timer = 0; this.done = false;
     }
     reset() { this.idx = 0; this.timer = 0; this.done = false; }
     update(dt) {
@@ -258,7 +203,7 @@ class SpriteAnim {
             this.timer -= 1 / this.fps;
             this.idx++;
             if (this.idx >= this.frames.length) {
-                if (this.loop) { this.idx = 0; }
+                if (this.loop) this.idx = 0;
                 else { this.idx = this.frames.length - 1; this.done = true; }
             }
         }
@@ -266,113 +211,82 @@ class SpriteAnim {
     getFrame() { return this.frames[this.idx]; }
 }
 
-// ===== 伤害飘字系统 =====
+// ===== 伤害飘字 =====
 const floatingTexts = [];
-function addFloatingText(x, y, value, isCrit) {
-    floatingTexts.push({ x, y, value, isCrit, life: 1.0, vy: -1.5 });
-}
+function addFloatingText(x, y, value, isCrit) { floatingTexts.push({ x, y, value, isCrit, life: 1.0, vy: -1.5 }); }
 function updateFloatingTexts(dt) {
     for (let i = floatingTexts.length - 1; i >= 0; i--) {
-        const ft = floatingTexts[i];
-        ft.y += ft.vy;
-        ft.life -= dt;
+        const ft = floatingTexts[i]; ft.y += ft.vy; ft.life -= dt;
         if (ft.life <= 0) floatingTexts.splice(i, 1);
     }
 }
 function drawFloatingTexts(ctx) {
     for (const ft of floatingTexts) {
         const alpha = Math.min(1, ft.life * 2);
-        const size = ft.isCrit ? 18 : 14;
-        const color = ft.isCrit ? `rgba(255,60,60,${alpha})` : `rgba(255,255,255,${alpha})`;
-        ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.strokeStyle = `rgba(0,0,0,${alpha * 0.8})`;
-        ctx.lineWidth = 3;
+        const sz = ft.isCrit ? 18 : 14;
+        const clr = ft.isCrit ? `rgba(255,60,60,${alpha})` : `rgba(255,255,255,${alpha})`;
+        ctx.font = `bold ${sz}px "Microsoft YaHei",sans-serif`;
+        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.strokeStyle = `rgba(0,0,0,${alpha*0.8})`; ctx.lineWidth = 3;
         ctx.strokeText(ft.value, ft.x, ft.y);
-        ctx.fillStyle = color;
-        ctx.fillText(ft.value, ft.x, ft.y);
+        ctx.fillStyle = clr; ctx.fillText(ft.value, ft.x, ft.y);
     }
 }
 
-// ===== 弹射物系统 =====
+// ===== 弹射物 =====
 const projectiles = [];
-
 function spawnProjectile(x, y, dir) {
-    projectiles.push({
-        x, y, dir, startX: x, alive: true,
-        anim: new SpriteAnim(
-            Array.from({length: 4}, (_, i) => assets[`mage-effect-${i + 1}`]), 10),
-        hitParticles: null
-    });
+    projectiles.push({ x, y, dir, startX: x, alive: true,
+        anim: new SpriteAnim(Array.from({length:4},(_,i)=>assets[`mage-effect-${i+1}`]),10), hitParticles: null });
 }
-
 function updateProjectiles(dt) {
     for (let i = projectiles.length - 1; i >= 0; i--) {
         const p = projectiles[i];
         if (!p.alive) {
-            // 命中粒子效果
-            if (p.hitParticles) {
-                p.hitParticles.life -= dt;
-                if (p.hitParticles.life <= 0) projectiles.splice(i, 1);
-            } else {
-                projectiles.splice(i, 1);
-            }
+            if (p.hitParticles) { p.hitParticles.life -= dt; if (p.hitParticles.life <= 0) projectiles.splice(i, 1); }
+            else projectiles.splice(i, 1);
             continue;
         }
-        p.x += PROJECTILE_SPEED * p.dir;
-        p.anim.update(dt);
+        p.x += PROJECTILE_SPEED * p.dir; p.anim.update(dt);
+        if (Math.abs(p.x - p.startX) > PROJECTILE_RANGE || p.x < -20 || p.x > CANVAS_W + 20) { projectiles.splice(i, 1); continue; }
 
-        // 超出射程或画面边界
-        if (Math.abs(p.x - p.startX) > PROJECTILE_RANGE || p.x < -20 || p.x > CANVAS_W + 20) {
-            projectiles.splice(i, 1);
-            continue;
-        }
-
-        // 命中检测
-        const goblins = game.getCurrentGoblins();
+        // 命中哥布林
+        let hit = false;
+        const goblins = [...game.goblinsL1, ...game.goblinsL2];
         for (const g of goblins) {
             if (g.dead || g.dying) continue;
-            const dx = Math.abs(p.x - g.x);
-            if (dx < 40) {
-                // 命中！
-                p.alive = false;
-                p.hitParticles = { x: p.x, y: p.y, life: 0.3 };
+            if (Math.abs(p.x - g.x) < 40) {
+                p.alive = false; p.hitParticles = { x: p.x, y: p.y, life: 0.3 };
                 const isCrit = Math.random() < CRIT_CHANCE;
-                const dmg = isCrit ? PLAYER_CRIT_DMG : PLAYER_DMG;
-                g.takeHit(dmg, isCrit);
-                break;
+                g.takeHit(isCrit ? PLAYER_CRIT_DMG : PLAYER_DMG, isCrit);
+                hit = true; break;
+            }
+        }
+        // 命中BOSS
+        if (!hit && game.boss && game.boss.active && !game.boss.dead) {
+            if (Math.abs(p.x - game.boss.x) < 60 && Math.abs(p.y - game.boss.y) < 80) {
+                p.alive = false; p.hitParticles = { x: p.x, y: p.y, life: 0.3 };
+                const isCrit = Math.random() < CRIT_CHANCE;
+                game.boss.takeHit(isCrit ? PLAYER_CRIT_DMG : PLAYER_DMG, isCrit);
             }
         }
     }
 }
-
 function drawProjectiles(ctx) {
     for (const p of projectiles) {
         if (p.alive) {
-            const frame = p.anim.getFrame();
-            if (!frame) continue;
-            const w = frame.width * EFFECT_SCALE;
-            const h = frame.height * EFFECT_SCALE;
-            ctx.save();
-            ctx.translate(p.x, p.y);
-            if (p.dir === -1) ctx.scale(-1, 1);
-            ctx.drawImage(frame, -w / 2, -h / 2, w, h);
-            ctx.restore();
+            const f = p.anim.getFrame(); if (!f) continue;
+            const w = f.width*EFFECT_SCALE, h = f.height*EFFECT_SCALE;
+            ctx.save(); ctx.translate(p.x,p.y); if(p.dir===-1) ctx.scale(-1,1);
+            ctx.drawImage(f,-w/2,-h/2,w,h); ctx.restore();
         } else if (p.hitParticles) {
-            // 蓝色像素粒子命中特效
-            const hp = p.hitParticles;
-            const alpha = hp.life / 0.3;
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            for (let j = 0; j < 8; j++) {
-                const angle = (j / 8) * Math.PI * 2 + (1 - hp.life) * 3;
-                const dist = (1 - hp.life / 0.3) * 25;
-                const px = hp.x + Math.cos(angle) * dist;
-                const py = hp.y + Math.sin(angle) * dist;
-                const size = 2 + Math.random() * 2;
-                ctx.fillStyle = j % 2 === 0 ? '#4fc3f7' : '#0288d1';
-                ctx.fillRect(px - size / 2, py - size / 2, size, size);
+            const hp = p.hitParticles, alpha = hp.life/0.3;
+            ctx.save(); ctx.globalAlpha = alpha;
+            for (let j=0;j<8;j++) {
+                const a=(j/8)*Math.PI*2+(1-hp.life)*3, d=(1-hp.life/0.3)*25;
+                const px=hp.x+Math.cos(a)*d, py=hp.y+Math.sin(a)*d, s=2+Math.random()*2;
+                ctx.fillStyle=j%2===0?'#4fc3f7':'#0288d1';
+                ctx.fillRect(px-s/2,py-s/2,s,s);
             }
             ctx.restore();
         }
@@ -381,217 +295,133 @@ function drawProjectiles(ctx) {
 
 // ===== 玩家法师 =====
 const player = {
-    x: 100,
-    y: FLOOR_Y_1,
-    vy: 0,
-    hp: PLAYER_MAX_HP,
-    facing: 1,
-    state: 'idle',     // idle | move | attack | jump | falling
-    grounded: true,
-    anims: {},
-    currentAnim: null,
-    attackHitChecked: false,
-    idleCooldown: 5.0,
-    idlePlaying: false,
-    hurtFlashTimer: 0,
+    x:100, y:FLOOR_Y_1, vy:0, hp:PLAYER_MAX_HP,
+    facing:1, state:'idle', grounded:true, falling:false,
+    jumpCount:0,       // 0=地面, 1=一段跳, 2=二段跳
+    doubleJumping:false, // 二段跳无敌状态
+    anims:{}, currentAnim:null,
+    attackHitChecked:false, idleCooldown:5.0, idlePlaying:false, hurtFlashTimer:0,
 
     init() {
-        this.anims.idle = new SpriteAnim(
-            Array.from({length: 6}, (_, i) => assets[`mage-idle-${i + 1}`]), 6, false);
-        this.anims.move = new SpriteAnim(
-            Array.from({length: 3}, (_, i) => assets[`mage-move-${i + 1}`]), 8);
-        this.anims.attack = new SpriteAnim(
-            Array.from({length: 6}, (_, i) => assets[`mage-attack-${i + 1}`]), 10, false);
-        // 跳跃用移动帧
-        this.anims.jump = new SpriteAnim(
-            Array.from({length: 3}, (_, i) => assets[`mage-move-${i + 1}`]), 6, false);
+        this.anims.idle = new SpriteAnim(Array.from({length:6},(_,i)=>assets[`mage-idle-${i+1}`]),6,false);
+        this.anims.move = new SpriteAnim(Array.from({length:3},(_,i)=>assets[`mage-move-${i+1}`]),8);
+        this.anims.attack = new SpriteAnim(Array.from({length:6},(_,i)=>assets[`mage-attack-${i+1}`]),10,false);
+        this.anims.jump = new SpriteAnim(Array.from({length:3},(_,i)=>assets[`mage-move-${i+1}`]),6,false);
         this.currentAnim = this.anims.idle;
     },
-
     reset() {
-        this.hp = PLAYER_MAX_HP;
-        this.vy = 0;
-        this.grounded = true;
-        this.falling = false;
-        this.state = 'idle';
-        this.hurtFlashTimer = 0;
-        this.idleCooldown = 5.0;
-        this.idlePlaying = false;
+        this.hp = PLAYER_MAX_HP; this.vy = 0; this.grounded = true; this.falling = false;
+        this.jumpCount = 0; this.doubleJumping = false;
+        this.state = 'idle'; this.hurtFlashTimer = 0; this.idleCooldown = 5.0; this.idlePlaying = false;
     },
-
     takeDamage(dmg) {
-        this.hp -= dmg;
-        this.hurtFlashTimer = 0.3;
-        if (this.hp <= 0) {
-            this.hp = 0;
-            game.state = 'gameover';
-            game.gameoverTimer = 0;
-        }
+        this.hp -= dmg; this.hurtFlashTimer = 0.3;
+        if (this.hp <= 0) { this.hp = 0; game.state = 'gameover'; game.gameoverTimer = 0; }
     },
-
-    getFloorY() {
-        return game.currentLayer === 1 ? FLOOR_Y_1 : FLOOR_Y_2;
-    },
-
+    getFloorY() { return game.currentLayer === 1 ? FLOOR_Y_1 : FLOOR_Y_2; },
     isOverGap() {
-        // 只有二层有断裂
         if (game.currentLayer !== 2 && !this.falling) return false;
         return this.x > GAP_LEFT && this.x < GAP_RIGHT;
     },
-
     update(dt) {
         if (game.state === 'gameover') return;
-
-        // 受击闪烁计时
         if (this.hurtFlashTimer > 0) this.hurtFlashTimer -= dt;
 
-        // 攻击动画结束后回到idle
         if (this.state === 'attack' && this.anims.attack.done) {
             this.state = this.grounded ? 'idle' : 'jump';
-            this.idleCooldown = 5.0;
-            this.idlePlaying = false;
+            this.idleCooldown = 5.0; this.idlePlaying = false;
         }
 
-        // 跌落过程（从二层掉到一层，自然下落）
+        // 跌落（二层→一层）
         if (this.falling) {
-            this.vy += GRAVITY;
-            this.y += this.vy;
+            this.vy += GRAVITY; this.y += this.vy;
             if (this.y >= FLOOR_Y_1) {
-                this.y = FLOOR_Y_1;
-                this.vy = 0;
-                this.grounded = true;
-                this.falling = false;
-                this.state = 'idle';
+                this.y = FLOOR_Y_1; this.vy = 0; this.grounded = true; this.falling = false;
+                this.jumpCount = 0; this.doubleJumping = false; this.state = 'idle';
             }
-            // 跌落中只允许左右微调，不处理其他输入
-            if (keys['ArrowLeft'] || keys['KeyA']) { this.x -= PLAYER_SPEED * 0.5; this.facing = -1; }
-            if (keys['ArrowRight'] || keys['KeyD']) { this.x += PLAYER_SPEED * 0.5; this.facing = 1; }
-            this.currentAnim = this.anims.jump;
-            this.currentAnim.update(dt);
-            if (this.x < 30) this.x = 30;
-            mouseClicked = false;
-            return;
+            if (keys['ArrowLeft']||keys['KeyA']) { this.x -= PLAYER_SPEED*0.5; this.facing = -1; }
+            if (keys['ArrowRight']||keys['KeyD']) { this.x += PLAYER_SPEED*0.5; this.facing = 1; }
+            this.currentAnim = this.anims.jump; this.currentAnim.update(dt);
+            if (this.x < 30) this.x = 30; mouseClicked = false; return;
         }
 
         const floorY = this.getFloorY();
 
-        // 跳跃/下落物理
         if (!this.grounded) {
-            this.vy += GRAVITY;
-            this.y += this.vy;
-
+            this.vy += GRAVITY; this.y += this.vy;
+            // 落地检测
             if (this.y >= floorY) {
                 if (game.currentLayer === 2 && this.isOverGap()) {
-                    // 进入跌落状态：切换到一层，保持当前y，自然下落
-                    game.currentLayer = 1;
-                    this.falling = true;
-                    this.grounded = false;
+                    game.currentLayer = 1; this.falling = true; this.grounded = false;
                 } else {
-                    this.y = floorY;
-                    this.vy = 0;
-                    this.grounded = true;
+                    this.y = floorY; this.vy = 0; this.grounded = true;
+                    this.jumpCount = 0; this.doubleJumping = false;
                     if (this.state === 'jump') this.state = 'idle';
                 }
             }
         } else {
-            // 站在地面上时检查是否踩在断裂上
             if (game.currentLayer === 2 && this.isOverGap()) {
-                // 进入跌落状态
-                game.currentLayer = 1;
-                this.grounded = false;
-                this.falling = true;
-                this.vy = 0;
+                game.currentLayer = 1; this.grounded = false; this.falling = true; this.vy = 0;
             }
         }
 
-        // 输入处理（攻击中不能移动，但可以在空中攻击）
+        // 输入
         if (this.state !== 'attack') {
             let moving = false;
-            if (keys['ArrowLeft'] || keys['KeyA']) {
-                this.x -= PLAYER_SPEED;
-                this.facing = -1;
-                moving = true;
-            }
-            if (keys['ArrowRight'] || keys['KeyD']) {
-                this.x += PLAYER_SPEED;
-                this.facing = 1;
-                moving = true;
-            }
+            if (keys['ArrowLeft']||keys['KeyA']) { this.x -= PLAYER_SPEED; this.facing = -1; moving = true; }
+            if (keys['ArrowRight']||keys['KeyD']) { this.x += PLAYER_SPEED; this.facing = 1; moving = true; }
 
-            // 跳跃（空格）
-            if (consumeKey('Space') && this.grounded) {
-                this.grounded = false;
-                this.vy = JUMP_VELOCITY;
-                this.state = 'jump';
-                this.anims.jump.reset();
-            }
-
-            // 攻击（J键或鼠标）
-            if (consumeKey('KeyJ') || mouseClicked) {
-                mouseClicked = false;
-                this.state = 'attack';
-                this.currentAnim = this.anims.attack;
-                this.currentAnim.reset();
-                this.attackHitChecked = false;
-            } else if (this.grounded) {
-                if (this.state !== 'jump') {
-                    this.state = moving ? 'move' : 'idle';
+            // 跳跃/二段跳
+            if (consumeKey('Space')) {
+                if (this.grounded) {
+                    this.grounded = false; this.vy = JUMP_VELOCITY; this.state = 'jump';
+                    this.jumpCount = 1; this.doubleJumping = false; this.anims.jump.reset();
+                } else if (this.jumpCount === 1) {
+                    // 二段跳
+                    this.vy = JUMP_VELOCITY * 0.85; this.jumpCount = 2;
+                    this.doubleJumping = true; this.anims.jump.reset();
                 }
+            }
+
+            if (consumeKey('KeyJ') || mouseClicked) {
+                mouseClicked = false; this.state = 'attack';
+                this.currentAnim = this.anims.attack; this.currentAnim.reset(); this.attackHitChecked = false;
+            } else if (this.grounded && this.state !== 'jump') {
+                this.state = moving ? 'move' : 'idle';
             }
         }
         mouseClicked = false;
 
-        // 更新动画
+        // 动画
         if (this.state === 'idle') {
             if (!this.idlePlaying) {
                 this.idleCooldown -= dt;
-                if (this.idleCooldown <= 0) {
-                    this.idlePlaying = true;
-                    this.anims.idle.reset();
-                }
-                this.currentAnim = this.anims.idle;
-                this.anims.idle.idx = 0;
+                if (this.idleCooldown <= 0) { this.idlePlaying = true; this.anims.idle.reset(); }
+                this.currentAnim = this.anims.idle; this.anims.idle.idx = 0;
             } else {
-                this.currentAnim = this.anims.idle;
-                this.anims.idle.update(dt);
-                if (this.anims.idle.done) {
-                    this.idlePlaying = false;
-                    this.idleCooldown = 5.0;
-                }
+                this.currentAnim = this.anims.idle; this.anims.idle.update(dt);
+                if (this.anims.idle.done) { this.idlePlaying = false; this.idleCooldown = 5.0; }
             }
-        } else if (this.state === 'move') {
-            this.currentAnim = this.anims.move;
-            this.currentAnim.update(dt);
-        } else if (this.state === 'attack') {
-            this.currentAnim.update(dt);
-        } else if (this.state === 'jump') {
-            this.currentAnim = this.anims.jump;
-            this.currentAnim.update(dt);
-        }
+        } else if (this.state === 'move') { this.currentAnim = this.anims.move; this.currentAnim.update(dt); }
+        else if (this.state === 'attack') { this.currentAnim.update(dt); }
+        else if (this.state === 'jump') { this.currentAnim = this.anims.jump; this.currentAnim.update(dt); }
 
-        // 攻击第5帧发射弹射物（idx=4，从0开始）
+        // 发射弹射物
         if (this.state === 'attack' && !this.attackHitChecked && this.anims.attack.idx >= 4) {
             this.attackHitChecked = true;
             spawnProjectile(this.x + this.facing * 30, this.y - 60, this.facing);
         }
 
-        // 限制在地图范围内
         if (this.x < 30) this.x = 30;
     },
-
     draw(ctx) {
         const frame = this.currentAnim ? this.currentAnim.getFrame() : null;
         if (!frame) return;
-
-        // 受击闪烁
-        if (this.hurtFlashTimer > 0 && Math.floor(this.hurtFlashTimer * 15) % 2 === 0) return;
-
-        const w = frame.width * SPRITE_SCALE;
-        const h = frame.height * SPRITE_SCALE;
-        ctx.save();
-        ctx.translate(this.x, this.y);
-        if (this.facing === -1) ctx.scale(-1, 1);
-        ctx.drawImage(frame, -w / 2, -h + MAGE_FOOT_OFFSET, w, h);
+        if (this.hurtFlashTimer > 0 && Math.floor(this.hurtFlashTimer*15)%2===0) return;
+        const w = frame.width*SPRITE_SCALE, h = frame.height*SPRITE_SCALE;
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.facing === -1) ctx.scale(-1,1);
+        ctx.drawImage(frame, -w/2, -h+MAGE_FOOT_OFFSET, w, h);
         ctx.restore();
     }
 };
@@ -599,457 +429,458 @@ const player = {
 // ===== 哥布林 =====
 class Goblin {
     constructor(x, y, patrolMin, patrolMax) {
-        this.x = x;
-        this.y = y;
-        this.patrolMin = patrolMin;
-        this.patrolMax = patrolMax;
-        this.dir = 1;
-        this.hp = GOBLIN_MAX_HP;
-        this.dead = false;       // 彻底消失
-        this.dying = false;      // 播放死亡动画中
-        this.inCombat = false;   // 仇恨战斗模式
-        this.flashTimer = 0;     // 受击红色闪烁
-        this.atkCooldown = 0;    // 攻击冷却
-        this.isAttacking = false;
-
+        this.x = x; this.y = y; this.patrolMin = patrolMin; this.patrolMax = patrolMax;
+        this.dir = 1; this.hp = GOBLIN_MAX_HP;
+        this.dead = false; this.dying = false; this.inCombat = false;
+        this.flashTimer = 0; this.atkCooldown = 0; this.isAttacking = false;
         this.anims = {
-            move: new SpriteAnim(
-                Array.from({length: 3}, (_, i) => assets[`goblin-move-${i + 1}`]), 6),
-            attack: new SpriteAnim(
-                Array.from({length: 6}, (_, i) => assets[`goblin-attack-${i + 1}`]), 8, false),
-            death: new SpriteAnim(
-                Array.from({length: 4}, (_, i) => assets[`goblin-death-${i + 1}`]), 6, false),
+            move: new SpriteAnim(Array.from({length:3},(_,i)=>assets[`goblin-move-${i+1}`]),6),
+            attack: new SpriteAnim(Array.from({length:6},(_,i)=>assets[`goblin-attack-${i+1}`]),8,false),
+            death: new SpriteAnim(Array.from({length:4},(_,i)=>assets[`goblin-death-${i+1}`]),6,false),
         };
         this.currentAnim = this.anims.move;
     }
-
     takeHit(dmg, isCrit) {
-        if (this.dead || this.dying) return;
-        this.hp -= dmg;
-        this.flashTimer = 1.0;  // 1秒红色闪烁
-        this.inCombat = true;
-        addFloatingText(this.x, this.y - 100, dmg, isCrit);
+        if (this.dead||this.dying) return;
+        this.hp -= dmg; this.flashTimer = 1.0; this.inCombat = true;
+        addFloatingText(this.x, this.y-100, dmg, isCrit);
         if (this.hp <= 0) {
-            this.hp = 0;
-            this.dying = true;
-            this.isAttacking = false;
-            this.currentAnim = this.anims.death;
-            this.currentAnim.reset();
-            game.checkWin();
+            this.hp = 0; this.dying = true; this.isAttacking = false;
+            this.currentAnim = this.anims.death; this.currentAnim.reset();
+            game.checkGoblinsCleared();
         }
     }
-
     update(dt) {
         if (this.dead) return;
-
-        // 死亡动画播放
-        if (this.dying) {
-            this.currentAnim.update(dt);
-            if (this.currentAnim.done) {
-                this.dead = true;
+        if (this.dying) { this.currentAnim.update(dt); if (this.currentAnim.done) this.dead = true; return; }
+        if (this.flashTimer > 0) this.flashTimer -= dt;
+        if (this.atkCooldown > 0) this.atkCooldown -= dt;
+        const myLayer = this.y === FLOOR_Y_1 ? 1 : 2;
+        const playerHere = game.currentLayer === myLayer;
+        if (!playerHere) {
+            if (this.isAttacking) { this.isAttacking = false; this.currentAnim = this.anims.move; this.currentAnim.reset(); }
+            this.inCombat = false; this.atkCooldown = 0;
+        }
+        if (!this.inCombat && playerHere && Math.abs(player.x - this.x) < AGGRO_RANGE) this.inCombat = true;
+        if (this.inCombat && playerHere) {
+            const dx = player.x - this.x, dist = Math.abs(dx);
+            if (this.isAttacking) {
+                this.currentAnim.update(dt);
+                if (this.anims.attack.idx >= 3 && !this._atkHit) {
+                    this._atkHit = true;
+                    if (Math.abs(player.x-this.x) < GOBLIN_ATK_RANGE+20) player.takeDamage(GOBLIN_DMG);
+                }
+                if (this.currentAnim.done) { this.isAttacking = false; this.atkCooldown = 1.0; this.currentAnim = this.anims.move; }
+            } else if (dist < GOBLIN_ATK_RANGE && this.atkCooldown <= 0) {
+                this.isAttacking = true; this._atkHit = false; this.dir = dx>0?1:-1;
+                this.currentAnim = this.anims.attack; this.currentAnim.reset();
+            } else {
+                this.dir = dx>0?1:-1; this.x += GOBLIN_CHASE_SPEED*this.dir;
+                if (this.y === FLOOR_Y_2 && this.x > GAP_LEFT-20 && this.x < GAP_RIGHT+20)
+                    this.x = this.dir===1 ? GAP_LEFT-20 : GAP_RIGHT+20;
+                this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             }
+        } else {
+            this.x += GOBLIN_SPEED*this.dir;
+            if (this.x >= this.patrolMax) { this.x = this.patrolMax; this.dir = -1; }
+            if (this.x <= this.patrolMin) { this.x = this.patrolMin; this.dir = 1; }
+            this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+        }
+    }
+    draw(ctx) {
+        if (this.dead) return;
+        const frame = this.currentAnim.getFrame(); if (!frame) return;
+        const w = frame.width*GOBLIN_SCALE, h = frame.height*GOBLIN_SCALE;
+        ctx.save(); ctx.translate(this.x, this.y);
+        if (this.dir === -1) ctx.scale(-1,1);
+        if (this.flashTimer > 0 && Math.floor(this.flashTimer*8)%2===0) {
+            const oc = document.createElement('canvas'); oc.width=Math.ceil(w); oc.height=Math.ceil(h);
+            const ox = oc.getContext('2d'); ox.drawImage(frame,0,0,w,h);
+            ox.globalCompositeOperation='source-atop'; ox.fillStyle='rgba(255,0,0,0.45)'; ox.fillRect(0,0,w,h);
+            ctx.drawImage(oc,-w/2,-h+GOBLIN_FOOT_OFFSET);
+        } else ctx.drawImage(frame,-w/2,-h+GOBLIN_FOOT_OFFSET,w,h);
+        ctx.restore();
+        if (this.inCombat && !this.dying) this.drawHPBar(ctx);
+    }
+    drawHPBar(ctx) {
+        const bW=40,bH=5,bx=this.x-bW/2,by=this.y-110,r=this.hp/GOBLIN_MAX_HP;
+        ctx.fillStyle='#1a1a1a'; ctx.fillRect(bx-1,by-1,bW+2,bH+2);
+        ctx.fillStyle=r>0.5?'#44cc44':r>0.25?'#cccc44':'#cc4444'; ctx.fillRect(bx,by,bW*r,bH);
+        ctx.strokeStyle='#666'; ctx.lineWidth=1; ctx.strokeRect(bx-1,by-1,bW+2,bH+2);
+    }
+}
+
+// ===== 骷髅骑士BOSS =====
+class SkeletonKnight {
+    constructor() {
+        this.x = 0; this.y = 0; this.dir = -1; this.hp = BOSS_MAX_HP;
+        this.active = false; this.dead = false; this.dying = false;
+        this.state = 'idle'; // idle|move|dash|attack|dying
+        this.vy = 0; this.grounded = true; this.falling = false;
+        this.flashTimer = 0; this.atkCooldown = 2.0; this.dashCooldown = 5.0;
+        this._atkHit1 = false; this._atkHit2 = false;
+        this.dashStartX = 0;
+        this.anims = {};
+        this.currentAnim = null;
+    }
+    init() {
+        this.anims.move = new SpriteAnim(Array.from({length:4},(_,i)=>assets[`boss-move-${i+1}`]),6);
+        this.anims.dash = new SpriteAnim(Array.from({length:8},(_,i)=>assets[`boss-dash-${i+1}`]),12);
+        this.anims.attack = new SpriteAnim(Array.from({length:4},(_,i)=>assets[`boss-attack-${i+1}`]),5,false);
+        this.currentAnim = this.anims.move;
+    }
+    spawn(layer) {
+        this.active = true; this.dead = false; this.dying = false; this.hp = BOSS_MAX_HP;
+        this.y = layer === 1 ? FLOOR_Y_1 : FLOOR_Y_2;
+        this.x = CANVAS_W + 80; this.dir = -1;
+        this.grounded = true; this.falling = false; this.vy = 0;
+        // 以冲刺入场
+        this.state = 'dash'; this.dashStartX = this.x;
+        this.currentAnim = this.anims.dash; this.currentAnim.reset();
+        this.atkCooldown = 2.0; this.dashCooldown = 6.0;
+    }
+    takeHit(dmg, isCrit) {
+        if (this.dead || this.dying) return;
+        this.hp -= dmg; this.flashTimer = 0.5;
+        addFloatingText(this.x, this.y - 160, dmg, isCrit);
+        if (this.hp <= 0) {
+            this.hp = 0; this.dying = true; this.state = 'dying';
+            // 用move动画最后一帧表示死亡（无专属死亡帧）
+        }
+    }
+    isOverGap() {
+        const layer = this.y <= FLOOR_Y_2 + 50 ? 2 : 1;
+        if (layer !== 2) return false;
+        return this.x > GAP_LEFT && this.x < GAP_RIGHT;
+    }
+    update(dt) {
+        if (!this.active || this.dead) return;
+        if (this.flashTimer > 0) this.flashTimer -= dt;
+
+        // 死亡处理
+        if (this.dying) {
+            this.flashTimer = 999; // 持续闪烁
+            this.dying = false; this.dead = true; this.active = false;
+            game.onBossKilled();
             return;
         }
 
-        // 受击闪烁
-        if (this.flashTimer > 0) this.flashTimer -= dt;
+        // 重力/跌落
+        if (this.falling) {
+            this.vy += GRAVITY; this.y += this.vy;
+            if (this.y >= FLOOR_Y_1) {
+                this.y = FLOOR_Y_1; this.vy = 0; this.grounded = true; this.falling = false;
+            }
+            return;
+        }
+        if (!this.grounded) {
+            this.vy += GRAVITY; this.y += this.vy;
+            const floorY = this.y <= FLOOR_Y_2+50 ? FLOOR_Y_2 : FLOOR_Y_1;
+            if (this.y >= floorY) { this.y = floorY; this.vy = 0; this.grounded = true; }
+        }
+        // 地面断裂检测
+        const bossLayer = this.y <= FLOOR_Y_2 + 50 ? 2 : 1;
+        if (this.grounded && bossLayer === 2 && this.x > GAP_LEFT && this.x < GAP_RIGHT) {
+            this.grounded = false; this.falling = true; this.vy = 0;
+        }
 
-        // 攻击冷却
+        // 冷却
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
+        if (this.dashCooldown > 0) this.dashCooldown -= dt;
 
-        // 判断玩家是否在本层
-        const myLayer = this.y === FLOOR_Y_1 ? 1 : 2;
-        const playerOnMyLayer = game.currentLayer === myLayer;
+        const dx = player.x - this.x;
+        const dist = Math.abs(dx);
+        this.dir = dx > 0 ? 1 : -1;
 
-        // 玩家不在本层时，重置战斗状态回到巡逻
-        if (!playerOnMyLayer) {
-            if (this.isAttacking) {
-                this.isAttacking = false;
+        if (this.state === 'dash') {
+            // 冲刺移动
+            this.x += BOSS_DASH_SPEED * this.dir;
+            this.currentAnim = this.anims.dash; this.currentAnim.update(dt);
+            // 冲刺伤害判定
+            if (dist < 50 && !player.doubleJumping) {
+                player.takeDamage(BOSS_DASH_DMG);
+                this.state = 'move'; this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
-                this.currentAnim.reset();
             }
-            this.inCombat = false;
-            this.atkCooldown = 0;
-        }
-
-        // 检查仇恨范围
-        if (!this.inCombat && playerOnMyLayer) {
-            const dx = Math.abs(player.x - this.x);
-            if (dx < AGGRO_RANGE) {
-                this.inCombat = true;
-            }
-        }
-
-        if (this.inCombat && playerOnMyLayer) {
-            // 战斗模式：朝法师移动
-            const dx = player.x - this.x;
-            const dist = Math.abs(dx);
-
-            if (this.isAttacking) {
-                // 攻击动画播放中
-                this.currentAnim.update(dt);
-                // 攻击第4帧判定伤害
-                if (this.anims.attack.idx >= 3 && !this._atkHit) {
-                    this._atkHit = true;
-                    if (Math.abs(player.x - this.x) < GOBLIN_ATK_RANGE + 20) {
-                        player.takeDamage(GOBLIN_DMG);
-                    }
-                }
-                if (this.currentAnim.done) {
-                    this.isAttacking = false;
-                    this.atkCooldown = 1.0;
-                    this.currentAnim = this.anims.move;
-                }
-            } else if (dist < GOBLIN_ATK_RANGE && this.atkCooldown <= 0) {
-                // 进入攻击
-                this.isAttacking = true;
-                this._atkHit = false;
-                this.dir = dx > 0 ? 1 : -1;
-                this.currentAnim = this.anims.attack;
-                this.currentAnim.reset();
-            } else {
-                // 追击
-                this.dir = dx > 0 ? 1 : -1;
-                this.x += GOBLIN_CHASE_SPEED * this.dir;
-                // 二层哥布林不越过断裂区域
-                if (this.y === FLOOR_Y_2) {
-                    if (this.x > GAP_LEFT - 20 && this.x < GAP_RIGHT + 20) {
-                        this.x = this.dir === 1 ? GAP_LEFT - 20 : GAP_RIGHT + 20;
-                    }
-                }
+            // 冲刺距离限制或到达玩家附近
+            if (Math.abs(this.x - this.dashStartX) > 400 || this.x < 20 || this.x > CANVAS_W - 20) {
+                this.state = 'move'; this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
-                this.currentAnim.update(dt);
             }
-        } else {
-            // 非战斗：巡逻
-            this.x += GOBLIN_SPEED * this.dir;
-            if (this.x >= this.patrolMax) { this.x = this.patrolMax; this.dir = -1; }
-            if (this.x <= this.patrolMin) { this.x = this.patrolMin; this.dir = 1; }
-            this.currentAnim = this.anims.move;
+            // 边界
+            if (this.x < 30) this.x = 30;
+            if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
+
+        } else if (this.state === 'attack') {
             this.currentAnim.update(dt);
+            // 两段攻击判定：第2帧第一段，第4帧(done)第二段
+            if (this.anims.attack.idx >= 1 && !this._atkHit1) {
+                this._atkHit1 = true;
+                if (dist < BOSS_ATK_RANGE) player.takeDamage(BOSS_ATK_DMG);
+            }
+            if (this.anims.attack.idx >= 3 && !this._atkHit2) {
+                this._atkHit2 = true;
+                if (dist < BOSS_ATK_RANGE) player.takeDamage(BOSS_ATK_DMG);
+            }
+            if (this.currentAnim.done) {
+                this.state = 'move'; this.atkCooldown = 2.0;
+                this.currentAnim = this.anims.move;
+            }
+
+        } else {
+            // move：追击玩家
+            // 判断是否同层
+            const playerLayer = game.currentLayer;
+            if (bossLayer !== playerLayer) {
+                // 追向层切换出口
+                const targetX = bossLayer === 1 ? CANVAS_W + 20 : -20;
+                this.x += BOSS_MOVE_SPEED * (targetX > this.x ? 1 : -1);
+                if (bossLayer === 1 && this.x > CANVAS_W + 20) {
+                    // 切到二层
+                    this.y = FLOOR_Y_2; this.x = 30; this.grounded = true; this.falling = false;
+                } else if (bossLayer === 2 && this.x < -20) {
+                    this.y = FLOOR_Y_1; this.x = CANVAS_W - 50; this.grounded = true; this.falling = false;
+                }
+            } else {
+                this.x += BOSS_MOVE_SPEED * this.dir;
+                // 决定释放技能
+                if (dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
+                    this.state = 'attack'; this._atkHit1 = false; this._atkHit2 = false;
+                    this.currentAnim = this.anims.attack; this.currentAnim.reset();
+                } else if (dist > 200 && this.dashCooldown <= 0) {
+                    this.state = 'dash'; this.dashStartX = this.x;
+                    this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                }
+            }
+            this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+            if (this.x < 30) this.x = 30;
+            if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
         }
     }
-
     draw(ctx) {
-        if (this.dead) return;
-
-        const frame = this.currentAnim.getFrame();
+        if (!this.active || this.dead) return;
+        const frame = this.currentAnim ? this.currentAnim.getFrame() : null;
         if (!frame) return;
-        const w = frame.width * GOBLIN_SCALE;
-        const h = frame.height * GOBLIN_SCALE;
-
-        ctx.save();
-        ctx.translate(this.x, this.y);
+        const w = frame.width * BOSS_SCALE, h = frame.height * BOSS_SCALE;
+        ctx.save(); ctx.translate(this.x, this.y);
         if (this.dir === -1) ctx.scale(-1, 1);
-
-        // 受击红色闪烁效果 — 用离屏Canvas确保只在精灵像素上叠色
-        if (this.flashTimer > 0 && Math.floor(this.flashTimer * 8) % 2 === 0) {
-            const offCvs = document.createElement('canvas');
-            offCvs.width = Math.ceil(w);
-            offCvs.height = Math.ceil(h);
-            const offCtx = offCvs.getContext('2d');
-            offCtx.drawImage(frame, 0, 0, w, h);
-            offCtx.globalCompositeOperation = 'source-atop';
-            offCtx.fillStyle = 'rgba(255,0,0,0.45)';
-            offCtx.fillRect(0, 0, w, h);
-            ctx.drawImage(offCvs, -w / 2, -h + GOBLIN_FOOT_OFFSET);
+        // 受击闪烁
+        if (this.flashTimer > 0 && Math.floor(this.flashTimer*8)%2===0) {
+            const oc = document.createElement('canvas'); oc.width=Math.ceil(w); oc.height=Math.ceil(h);
+            const ox = oc.getContext('2d'); ox.drawImage(frame,0,0,w,h);
+            ox.globalCompositeOperation='source-atop'; ox.fillStyle='rgba(255,0,0,0.45)'; ox.fillRect(0,0,w,h);
+            ctx.drawImage(oc,-w/2,-h+BOSS_FOOT_OFFSET);
         } else {
-            ctx.drawImage(frame, -w / 2, -h + GOBLIN_FOOT_OFFSET, w, h);
+            ctx.drawImage(frame,-w/2,-h+BOSS_FOOT_OFFSET,w,h);
         }
         ctx.restore();
-
-        // 血条（仅战斗模式显示，死亡时隐藏）
-        if (this.inCombat && !this.dying) {
-            this.drawHPBar(ctx);
-        }
+        // BOSS血条
+        this.drawHPBar(ctx);
     }
-
     drawHPBar(ctx) {
-        const barW = 40;
-        const barH = 5;
-        const bx = this.x - barW / 2;
-        const by = this.y - 110;
-        const ratio = this.hp / GOBLIN_MAX_HP;
-
-        // 底色
-        ctx.fillStyle = '#1a1a1a';
-        ctx.fillRect(bx - 1, by - 1, barW + 2, barH + 2);
-        // 血量
-        ctx.fillStyle = ratio > 0.5 ? '#44cc44' : ratio > 0.25 ? '#cccc44' : '#cc4444';
-        ctx.fillRect(bx, by, barW * ratio, barH);
-        // 边框
-        ctx.strokeStyle = '#666';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(bx - 1, by - 1, barW + 2, barH + 2);
+        const bW=200, bH=10, bx=CANVAS_W/2-bW/2, by=18, r=this.hp/BOSS_MAX_HP;
+        ctx.fillStyle='#1a0a0a'; ctx.fillRect(bx-2,by-2,bW+4,bH+4);
+        ctx.fillStyle='#330000'; ctx.fillRect(bx,by,bW,bH);
+        ctx.fillStyle=r>0.5?'#cc2222':r>0.25?'#cc6622':'#cc2222'; ctx.fillRect(bx,by,bW*r,bH);
+        ctx.strokeStyle='#aa4444'; ctx.lineWidth=1; ctx.strokeRect(bx-2,by-2,bW+4,bH+4);
+        game.drawPixelText(ctx, `骷髅骑士`, bx+bW/2, by+bH+12, '#ff6666', 10, 'center');
     }
 }
 
 // ===== 游戏主控 =====
 const game = {
-    state: 'title',    // title | play | transition | clear | nextLevel | gameover
-    currentLayer: 1,
-    level: 1,
-    goblinsL1: [],
-    goblinsL2: [],
-    transTimer: 0,
-    clearTimer: 0,
-    gameoverTimer: 0,
-    mapImg: null,
+    state: 'title', currentLayer: 1, level: 1,
+    goblinsL1: [], goblinsL2: [],
+    boss: null, bossPhase: 'inactive', // inactive|shaking|entering|fighting
+    shakeTimer: 0, shakeIntensity: 0,
+    clearTimer: 0, gameoverTimer: 0, mapImg: null,
 
     init() {
         this.mapImg = assets['dungeon-1'];
         player.init();
+        this.boss = new SkeletonKnight();
+        this.boss.init();
         this.startLevel();
     },
-
     startLevel() {
         this.currentLayer = 1;
-        player.x = 100;
-        player.y = FLOOR_Y_1;
-        player.reset();
-        player.facing = 1;
-        player.currentAnim = player.anims.idle;
-
-        projectiles.length = 0;
-        floatingTexts.length = 0;
-
-        // 第一层2只哥布林
+        player.x = 100; player.y = FLOOR_Y_1; player.reset();
+        player.facing = 1; player.currentAnim = player.anims.idle;
+        projectiles.length = 0; floatingTexts.length = 0;
+        this.bossPhase = 'inactive'; this.shakeTimer = 0;
+        this.boss.active = false; this.boss.dead = false; this.boss.dying = false;
+        // 一层3只哥布林
         this.goblinsL1 = [
-            new Goblin(350, FLOOR_Y_1, 150, 500),
-            new Goblin(750, FLOOR_Y_1, 550, 900),
+            new Goblin(250, FLOOR_Y_1, 100, 400),
+            new Goblin(500, FLOOR_Y_1, 300, 650),
+            new Goblin(780, FLOOR_Y_1, 600, 920),
         ];
-        // 第二层2只哥布林（巡逻范围不越过断裂区域）
+        // 二层2只哥布林
         this.goblinsL2 = [
             new Goblin(250, FLOOR_Y_2, 80, GAP_LEFT - 20),
             new Goblin(700, FLOOR_Y_2, GAP_RIGHT + 20, 880),
         ];
     },
+    getCurrentGoblins() { return this.currentLayer === 1 ? this.goblinsL1 : this.goblinsL2; },
 
-    getCurrentGoblins() {
-        return this.currentLayer === 1 ? this.goblinsL1 : this.goblinsL2;
-    },
-
-    checkWin() {
+    checkGoblinsCleared() {
         const allDead = [...this.goblinsL1, ...this.goblinsL2].every(g => g.dead || g.dying);
-        // 等所有dying动画也完成
-        if (allDead) {
-            // 延迟检查，等死亡动画播完
-            setTimeout(() => {
-                const reallyDead = [...this.goblinsL1, ...this.goblinsL2].every(g => g.dead);
-                if (reallyDead && this.state === 'play') {
-                    this.state = 'clear';
-                    this.clearTimer = 2.0;
-                }
-            }, 800);
+        if (allDead && this.bossPhase === 'inactive') {
+            // 开始BOSS出场流程
+            this.bossPhase = 'shaking';
+            this.shakeTimer = 1.5;
+            this.shakeIntensity = 6;
         }
+    },
+    onBossKilled() {
+        this.state = 'clear'; this.clearTimer = 2.5;
     },
 
     update(dt) {
         if (this.state === 'title') {
-            if (consumeKey('Space') || consumeKey('Enter') || mouseClicked) {
-                mouseClicked = false;
-                this.state = 'play';
-            }
+            if (consumeKey('Space')||consumeKey('Enter')||mouseClicked) { mouseClicked=false; this.state='play'; }
             return;
         }
-
         if (this.state === 'gameover') {
             this.gameoverTimer += dt;
-            if (this.gameoverTimer > 1.0 && (consumeKey('Space') || consumeKey('Enter') || mouseClicked)) {
-                mouseClicked = false;
-                this.state = 'play';
-                this.startLevel();
+            if (this.gameoverTimer>1.0 && (consumeKey('Space')||consumeKey('Enter')||mouseClicked)) {
+                mouseClicked=false; this.state='play'; this.startLevel();
             }
             return;
         }
-
         if (this.state === 'clear') {
             this.clearTimer -= dt;
-            if (this.clearTimer <= 0) {
-                this.level++;
-                this.state = 'play';
-                this.startLevel();
-            }
+            if (this.clearTimer <= 0) { this.level++; this.state='play'; this.startLevel(); }
             return;
         }
 
-        // play状态
+        // 震荡阶段
+        if (this.bossPhase === 'shaking') {
+            this.shakeTimer -= dt;
+            if (this.shakeTimer <= 0) {
+                this.bossPhase = 'fighting';
+                this.boss.spawn(this.currentLayer);
+            }
+        }
+
         player.update(dt);
         updateProjectiles(dt);
         updateFloatingTexts(dt);
-
-        // 两层哥布林都更新
         for (const g of this.goblinsL1) g.update(dt);
         for (const g of this.goblinsL2) g.update(dt);
+        if (this.boss.active) this.boss.update(dt);
 
-        // 场景切换：一层右侧出境 → 二层左侧入场（无缝）
-        if (this.currentLayer === 1 && player.x > CANVAS_W + 20) {
-            this.currentLayer = 2;
-            player.x = 30;
-            player.y = FLOOR_Y_2;
-            player.grounded = true;
-            player.vy = 0;
-            projectiles.length = 0;
+        // 场景切换
+        if (this.currentLayer===1 && player.x > CANVAS_W+20) {
+            this.currentLayer=2; player.x=30; player.y=FLOOR_Y_2;
+            player.grounded=true; player.vy=0; player.jumpCount=0; player.doubleJumping=false;
+            projectiles.length=0;
         }
-
-        // 二层左侧出境 → 返回一层右侧（无缝）
-        if (this.currentLayer === 2 && player.x < -20) {
-            this.currentLayer = 1;
-            player.x = CANVAS_W - 50;
-            player.y = FLOOR_Y_1;
-            player.grounded = true;
-            player.vy = 0;
-            projectiles.length = 0;
+        if (this.currentLayer===2 && player.x < -20) {
+            this.currentLayer=1; player.x=CANVAS_W-50; player.y=FLOOR_Y_1;
+            player.grounded=true; player.vy=0; player.jumpCount=0; player.doubleJumping=false;
+            projectiles.length=0;
         }
-
-        // 二层右侧边界
-        if (this.currentLayer === 2 && player.x > CANVAS_W - 30) {
-            player.x = CANVAS_W - 30;
-        }
+        if (this.currentLayer===2 && player.x > CANVAS_W-30) player.x=CANVAS_W-30;
     },
 
     draw(ctx) {
-        ctx.fillStyle = '#0a0a0f';
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-        if (this.state === 'title') {
-            this.drawTitle(ctx);
-            return;
+        // 震荡偏移
+        let sx=0, sy=0;
+        if (this.bossPhase==='shaking') {
+            sx = (Math.random()-0.5)*this.shakeIntensity*2;
+            sy = (Math.random()-0.5)*this.shakeIntensity*2;
         }
 
-        // 地图背景
-        if (this.mapImg) {
-            ctx.drawImage(this.mapImg, 0, 0, CANVAS_W, CANVAS_H);
-        }
+        ctx.save();
+        ctx.translate(sx, sy);
 
-        // （已移除层级暗化蒙版）
+        ctx.fillStyle='#0a0a0f'; ctx.fillRect(-10,-10,CANVAS_W+20,CANVAS_H+20);
 
-        // 绘制两层所有哥布林
+        if (this.state==='title') { this.drawTitle(ctx); ctx.restore(); return; }
+
+        if (this.mapImg) ctx.drawImage(this.mapImg,0,0,CANVAS_W,CANVAS_H);
+
         for (const g of this.goblinsL1) g.draw(ctx);
         for (const g of this.goblinsL2) g.draw(ctx);
-
-        // 绘制弹射物
+        if (this.boss.active) this.boss.draw(ctx);
         drawProjectiles(ctx);
-
-        // 绘制玩家
         player.draw(ctx);
-
-        // 伤害飘字
         drawFloatingTexts(ctx);
-
-        // HUD
         this.drawHUD(ctx);
 
-        // 通关提示
-        if (this.state === 'clear') {
-            ctx.fillStyle = 'rgba(0,0,0,0.6)';
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-            this.drawPixelText(ctx, '通关成功！进入下一关', CANVAS_W / 2, CANVAS_H / 2 - 10,
-                '#ffd700', 24, 'center');
-            this.drawPixelText(ctx, `第 ${this.level} 关完成`, CANVAS_W / 2, CANVAS_H / 2 + 25,
-                '#aaa', 14, 'center');
+        // 震荡提示
+        if (this.bossPhase==='shaking') {
+            ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            if (Math.floor(Date.now()/300)%2===0)
+                this.drawPixelText(ctx,'! BOSS 登场 !',CANVAS_W/2,CANVAS_H/2,'#ff4444',28,'center');
         }
 
-        // 游戏失败
-        if (this.state === 'gameover') {
-            ctx.fillStyle = 'rgba(0,0,0,0.7)';
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-            this.drawPixelText(ctx, '你被击败了', CANVAS_W / 2, CANVAS_H / 2 - 15,
-                '#cc3333', 26, 'center');
-            if (this.gameoverTimer > 1.0 && Math.floor(Date.now() / 500) % 2 === 0) {
-                this.drawPixelText(ctx, isTouchDevice ? '点击屏幕重新挑战' : '按 空格 重新挑战', CANVAS_W / 2, CANVAS_H / 2 + 25,
-                    '#888', 14, 'center');
-            }
+        if (this.state==='clear') {
+            ctx.fillStyle='rgba(0,0,0,0.6)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            this.drawPixelText(ctx,'通关成功！',CANVAS_W/2,CANVAS_H/2-10,'#ffd700',24,'center');
+            this.drawPixelText(ctx,`第 ${this.level} 关完成`,CANVAS_W/2,CANVAS_H/2+25,'#aaa',14,'center');
         }
+        if (this.state==='gameover') {
+            ctx.fillStyle='rgba(0,0,0,0.7)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            this.drawPixelText(ctx,'你被击败了',CANVAS_W/2,CANVAS_H/2-15,'#cc3333',26,'center');
+            if (this.gameoverTimer>1.0 && Math.floor(Date.now()/500)%2===0)
+                this.drawPixelText(ctx,isTouchDevice?'点击屏幕重新挑战':'按 空格 重新挑战',CANVAS_W/2,CANVAS_H/2+25,'#888',14,'center');
+        }
+
+        ctx.restore();
     },
 
     drawTitle(ctx) {
-        if (this.mapImg) {
-            ctx.globalAlpha = 0.4;
-            ctx.drawImage(this.mapImg, 0, 0, CANVAS_W, CANVAS_H);
-            ctx.globalAlpha = 1;
-        }
-        ctx.fillStyle = 'rgba(0,0,0,0.5)';
-        ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-
-        this.drawPixelText(ctx, '像素地牢', CANVAS_W / 2, CANVAS_H / 2 - 60, '#e0c070', 36, 'center');
-        this.drawPixelText(ctx, '法师清怪闯关', CANVAS_W / 2, CANVAS_H / 2 - 20, '#a0a0b0', 16, 'center');
-
-        if (Math.floor(Date.now() / 600) % 2 === 0) {
-            this.drawPixelText(ctx, isTouchDevice ? '点击屏幕开始' : '按 空格 开始游戏', CANVAS_W / 2, CANVAS_H / 2 + 40, '#8888aa', 14, 'center');
-        }
-
-        this.drawPixelText(ctx, isTouchDevice ? '左侧方向移动　右侧跳跃/攻击' : '← → 移动　空格 跳跃　J/鼠标 攻击', CANVAS_W / 2, CANVAS_H / 2 + 80, '#555', 11, 'center');
-        this.drawPixelText(ctx, '击杀所有哥布林通关', CANVAS_W / 2, CANVAS_H / 2 + 100, '#555', 11, 'center');
+        if (this.mapImg) { ctx.globalAlpha=0.4; ctx.drawImage(this.mapImg,0,0,CANVAS_W,CANVAS_H); ctx.globalAlpha=1; }
+        ctx.fillStyle='rgba(0,0,0,0.5)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+        this.drawPixelText(ctx,'像素地牢',CANVAS_W/2,CANVAS_H/2-60,'#e0c070',36,'center');
+        this.drawPixelText(ctx,'法师闯关 · BOSS战',CANVAS_W/2,CANVAS_H/2-20,'#a0a0b0',16,'center');
+        if (Math.floor(Date.now()/600)%2===0)
+            this.drawPixelText(ctx,isTouchDevice?'点击屏幕开始':'按 空格 开始游戏',CANVAS_W/2,CANVAS_H/2+40,'#8888aa',14,'center');
+        this.drawPixelText(ctx,isTouchDevice?'左侧方向移动　右侧跳跃/攻击':'← → 移动　空格 跳跃/二段跳　J/鼠标 攻击',CANVAS_W/2,CANVAS_H/2+80,'#555',11,'center');
+        this.drawPixelText(ctx,'清除哥布林 → 击败骷髅骑士BOSS通关',CANVAS_W/2,CANVAS_H/2+100,'#555',11,'center');
     },
 
     drawHUD(ctx) {
-        if (this.state === 'clear' || this.state === 'gameover') return;
+        if (this.state==='clear'||this.state==='gameover') return;
+        const bx=16,by=16,bW=160,bH=12,r=player.hp/PLAYER_MAX_HP;
+        ctx.fillStyle='#1a0a0a'; ctx.fillRect(bx-2,by-2,bW+4,bH+4);
+        ctx.fillStyle='#330000'; ctx.fillRect(bx,by,bW,bH);
+        ctx.fillStyle=r>0.5?'#cc2222':r>0.25?'#cc6622':'#cc2222'; ctx.fillRect(bx,by,bW*r,bH);
+        ctx.strokeStyle='#884444'; ctx.lineWidth=1; ctx.strokeRect(bx-2,by-2,bW+4,bH+4);
+        this.drawPixelText(ctx,`${player.hp}/${PLAYER_MAX_HP}`,bx+bW/2,by+bH/2,'#fff',10,'center');
 
-        // 玩家血条 — 像素风
-        const barX = 16, barY = 16;
-        const barW = 140, barH = 12;
-        const hpRatio = player.hp / PLAYER_MAX_HP;
+        const killed=[...this.goblinsL1,...this.goblinsL2].filter(g=>g.dead).length;
+        const total=this.goblinsL1.length+this.goblinsL2.length;
+        this.drawPixelText(ctx,`第 ${this.level} 关`,bx,by+bH+16,'#c0b080',12,'left');
+        this.drawPixelText(ctx,`哥布林 ${killed}/${total}`,bx+70,by+bH+16,'#cc6666',12,'left');
 
-        // 底色
-        ctx.fillStyle = '#1a0a0a';
-        ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
-        // 血量底色
-        ctx.fillStyle = '#330000';
-        ctx.fillRect(barX, barY, barW, barH);
-        // 血量
-        ctx.fillStyle = hpRatio > 0.5 ? '#cc2222' : hpRatio > 0.25 ? '#cc6622' : '#cc2222';
-        ctx.fillRect(barX, barY, barW * hpRatio, barH);
-        // 像素边框
-        ctx.strokeStyle = '#884444';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
-        // HP文字
-        this.drawPixelText(ctx, `${player.hp}/${PLAYER_MAX_HP}`, barX + barW / 2, barY + barH / 2, '#fff', 10, 'center');
-
-        // 关卡与层级
-        const killed = [...this.goblinsL1, ...this.goblinsL2].filter(g => g.dead).length;
-        const total = this.goblinsL1.length + this.goblinsL2.length;
-        this.drawPixelText(ctx, `第 ${this.level} 关`, barX, barY + barH + 16, '#c0b080', 12, 'left');
-        this.drawPixelText(ctx, `${killed}/${total}`, barX + 80, barY + barH + 16, '#cc6666', 12, 'left');
-
-        const layerText = this.currentLayer === 1 ? '地牢下层' : '地牢上层';
-        this.drawPixelText(ctx, layerText, CANVAS_W - 16, 26, 'rgba(200,200,220,0.5)', 12, 'right');
+        const lt=this.currentLayer===1?'地牢下层':'地牢上层';
+        this.drawPixelText(ctx,lt,CANVAS_W-16,26,'rgba(200,200,220,0.5)',12,'right');
     },
 
     drawPixelText(ctx, text, x, y, color, size, align) {
-        ctx.font = `bold ${size}px "Microsoft YaHei", sans-serif`;
-        ctx.textAlign = align || 'left';
-        ctx.textBaseline = 'middle';
-        ctx.strokeStyle = 'rgba(0,0,0,0.7)';
-        ctx.lineWidth = 3;
-        ctx.strokeText(text, x, y);
-        ctx.fillStyle = color;
-        ctx.fillText(text, x, y);
+        ctx.font=`bold ${size}px "Microsoft YaHei",sans-serif`;
+        ctx.textAlign=align||'left'; ctx.textBaseline='middle';
+        ctx.strokeStyle='rgba(0,0,0,0.7)'; ctx.lineWidth=3; ctx.strokeText(text,x,y);
+        ctx.fillStyle=color; ctx.fillText(text,x,y);
     }
 };
 
 // ===== 主循环 =====
 let lastTime = 0;
-
 function loop(time) {
     requestAnimationFrame(loop);
-    const dt = Math.min((time - lastTime) / 1000, 0.05);
+    const dt = Math.min((time-lastTime)/1000, 0.05);
     lastTime = time;
-
-    // 清理justPressed
-    game.update(dt);
-    game.draw(ctx);
-
-    // 清理justPressed在帧末
+    game.update(dt); game.draw(ctx);
     for (const k in justPressed) justPressed[k] = false;
 }
 
-// ===== 启动 =====
 loadAll().then(() => {
-    document.getElementById('loading').style.display = 'none';
-    game.init();
-    requestAnimationFrame(loop);
+    document.getElementById('loading').style.display='none';
+    game.init(); requestAnimationFrame(loop);
 });
 </script>
 </body>
