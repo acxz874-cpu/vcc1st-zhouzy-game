@@ -40,22 +40,29 @@ canvas {
 }
 #loading .bar { width:200px; height:4px; background:#1a1a2a; border-radius:2px; margin-top:12px; }
 #loading .fill { height:100%; background:#6b8cff; border-radius:2px; width:0%; transition:width 0.2s; }
-#touch-controls { display:none; position:fixed; bottom:0; left:0; right:0; height:140px; z-index:50; pointer-events:none; }
-.touch-group { position:absolute; bottom:20px; display:flex; gap:12px; pointer-events:auto; }
-.touch-group.left { left:20px; }
-.touch-group.right { right:20px; }
+#touch-controls { display:none; position:fixed; bottom:0; left:0; right:0; height:180px; z-index:50; pointer-events:none; }
+.touch-group { position:absolute; bottom:16px; display:flex; gap:14px; pointer-events:auto; }
+.touch-group.left { left:16px; align-items:center; }
+.touch-group.right { right:16px; align-items:flex-end; }
 .touch-btn {
-    width:64px; height:64px; border-radius:50%; border:2px solid rgba(255,255,255,0.3);
-    background:rgba(255,255,255,0.08); color:rgba(255,255,255,0.5);
+    width:72px; height:72px; border-radius:50%;
+    border:2.5px solid rgba(255,255,255,0.25);
+    background:radial-gradient(circle at 40% 35%, rgba(255,255,255,0.15), rgba(255,255,255,0.03));
+    color:rgba(255,255,255,0.6);
     display:flex; align-items:center; justify-content:center;
-    font-size:22px; font-weight:bold; line-height:1;
+    font-size:20px; font-weight:bold; line-height:1;
     -webkit-tap-highlight-color:transparent; touch-action:manipulation;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1);
+    transition: transform 0.05s;
 }
-.touch-btn.active { background:rgba(255,255,255,0.25); border-color:rgba(255,255,255,0.6); color:rgba(255,255,255,0.9); }
-.touch-btn.btn-jump { background:rgba(100,200,100,0.12); border-color:rgba(100,200,100,0.35); }
-.touch-btn.btn-jump.active { background:rgba(100,200,100,0.35); border-color:rgba(100,200,100,0.7); }
-.touch-btn.btn-atk { background:rgba(100,150,255,0.12); border-color:rgba(100,150,255,0.35); }
-.touch-btn.btn-atk.active { background:rgba(100,150,255,0.35); border-color:rgba(100,150,255,0.7); }
+.touch-btn.active { transform:scale(0.92); background:radial-gradient(circle at 40% 35%, rgba(255,255,255,0.3), rgba(255,255,255,0.08)); border-color:rgba(255,255,255,0.5); color:#fff; }
+.touch-btn.btn-left, .touch-btn.btn-right { width:76px; height:76px; font-size:24px; }
+.touch-btn.btn-jump { border-color:rgba(80,200,80,0.4); background:radial-gradient(circle at 40% 35%, rgba(80,200,80,0.2), rgba(80,200,80,0.05)); color:rgba(80,200,80,0.7); }
+.touch-btn.btn-jump.active { border-color:rgba(80,200,80,0.7); background:radial-gradient(circle at 40% 35%, rgba(80,200,80,0.4), rgba(80,200,80,0.1)); color:#6f6; }
+.touch-btn.btn-atk { border-color:rgba(100,150,255,0.4); background:radial-gradient(circle at 40% 35%, rgba(100,150,255,0.2), rgba(100,150,255,0.05)); color:rgba(100,150,255,0.7); }
+.touch-btn.btn-atk.active { border-color:rgba(100,150,255,0.7); background:radial-gradient(circle at 40% 35%, rgba(100,150,255,0.4), rgba(100,150,255,0.1)); color:#8af; }
+.touch-btn.btn-skill { border-color:rgba(200,100,255,0.4); background:radial-gradient(circle at 40% 35%, rgba(200,100,255,0.2), rgba(200,100,255,0.05)); color:rgba(200,100,255,0.7); }
+.touch-btn.btn-skill.active { border-color:rgba(200,100,255,0.7); background:radial-gradient(circle at 40% 35%, rgba(200,100,255,0.4), rgba(200,100,255,0.1)); color:#c8f; }
 </style>
 </head>
 <body>
@@ -70,8 +77,9 @@ canvas {
         <div class="touch-btn btn-right" data-key="ArrowRight">▶</div>
     </div>
     <div class="touch-group right">
-        <div class="touch-btn btn-jump" data-key="Space">跳</div>
+        <div class="touch-btn btn-skill" data-key="KeyK">技</div>
         <div class="touch-btn btn-atk" data-key="KeyJ">攻</div>
+        <div class="touch-btn btn-jump" data-key="Space">跳</div>
     </div>
 </div>
 <script>
@@ -114,7 +122,7 @@ const JUMP_VELOCITY = -8, GRAVITY = 0.35;
 const GAP_LEFT = 448, GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
-const ASSET_VER = '9';
+const ASSET_VER = '10';
 const assets = {};
 const toLoad = [];
 function regImg(key, src) { toLoad.push({ key, src: src + '?v=' + ASSET_VER }); }
@@ -132,6 +140,8 @@ for (let i = 1; i <= 4; i++) regImg(`goblin-death-${i}`, `assets/sprites/goblin-
 for (let i = 1; i <= 4; i++) regImg(`boss-move-${i}`, `assets/sprites/boss-move/${i}.png`);
 for (let i = 1; i <= 9; i++) regImg(`boss-dash-${i}`, `assets/sprites/boss-dash/${i}.png`);
 for (let i = 1; i <= 4; i++) regImg(`boss-attack-${i}`, `assets/sprites/boss-attack/${i}.png`);
+// 法师技能
+for (let i = 1; i <= 5; i++) regImg(`mage-skill-${i}`, `assets/sprites/mage-skill/${i}.png`);
 // 地图
 regImg('dungeon-1', 'assets/maps/dungeon-1.jpg');
 
@@ -213,7 +223,7 @@ class SpriteAnim {
 
 // ===== 伤害飘字 =====
 const floatingTexts = [];
-function addFloatingText(x, y, value, isCrit) { floatingTexts.push({ x, y, value, isCrit, life: 1.0, vy: -1.5 }); }
+function addFloatingText(x, y, value, isCrit, color) { floatingTexts.push({ x, y, value, isCrit, color: color||null, life: 1.0, vy: -1.5 }); }
 function updateFloatingTexts(dt) {
     for (let i = floatingTexts.length - 1; i >= 0; i--) {
         const ft = floatingTexts[i]; ft.y += ft.vy; ft.life -= dt;
@@ -224,7 +234,8 @@ function drawFloatingTexts(ctx) {
     for (const ft of floatingTexts) {
         const alpha = Math.min(1, ft.life * 2);
         const sz = ft.isCrit ? 18 : 14;
-        const clr = ft.isCrit ? `rgba(255,60,60,${alpha})` : `rgba(255,255,255,${alpha})`;
+        const clr = ft.color ? ft.color.replace('1)', `${alpha})`) :
+            (ft.isCrit ? `rgba(255,60,60,${alpha})` : `rgba(255,255,255,${alpha})`);
         ctx.font = `bold ${sz}px "Microsoft YaHei",sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.strokeStyle = `rgba(0,0,0,${alpha*0.8})`; ctx.lineWidth = 3;
@@ -293,6 +304,84 @@ function drawProjectiles(ctx) {
     }
 }
 
+// ===== 法师技能（冰晶爆发） =====
+const SKILL_DMG = 60, SKILL_COOLDOWN = 8, SKILL_RANGE = 120;
+const SKILL_SCALE = 0.2;
+const skillEffects = [];
+
+function spawnSkillEffect(x, y, dir) {
+    const ex = x + dir * 80;
+    skillEffects.push({
+        x: ex, y: y, alive: true, hit1Done: false, hit2Done: false,
+        anim: new SpriteAnim(Array.from({length:5},(_,i)=>assets[`mage-skill-${i+1}`]),6,false)
+    });
+}
+
+function updateSkillEffects(dt) {
+    for (let i = skillEffects.length - 1; i >= 0; i--) {
+        const s = skillEffects[i];
+        s.anim.update(dt);
+
+        // 收集范围内目标
+        const targets = [];
+        const goblins = game.currentLayer === 1 ? game.goblinsL1 : game.goblinsL2;
+        for (const g of goblins) {
+            if (!g.dead && !g.dying && Math.abs(s.x - g.x) < SKILL_RANGE) targets.push({type:'goblin', ref:g});
+        }
+        if (game.boss && game.boss.active && !game.boss.dead &&
+            Math.abs(s.x - game.boss.x) < SKILL_RANGE && Math.abs(s.y - game.boss.y) < 100) {
+            targets.push({type:'boss', ref:game.boss});
+        }
+
+        // 第3帧：第一段伤害30
+        if (!s.hit1Done && s.anim.idx >= 2) {
+            s.hit1Done = true;
+            for (const t of targets) {
+                t.ref.takeHit(30, false);
+            }
+        }
+
+        // 第5帧：第二段伤害30 + 击飞 + 冰冻减速
+        if (!s.hit2Done && s.anim.idx >= 4) {
+            s.hit2Done = true;
+            for (const t of targets) {
+                t.ref.takeHit(30, false);
+                // 击飞（给垂直速度，等同一段跳高度）
+                if (t.type === 'goblin') {
+                    // 哥布林没有vy系统，用floatingText模拟效果即可
+                }
+                if (t.type === 'boss' && t.ref.grounded) {
+                    t.ref.grounded = false;
+                    t.ref.vy = JUMP_VELOCITY;
+                }
+                // 冰冻减速
+                if (t.type === 'boss') {
+                    if (t.ref.rageUsed) {
+                        addFloatingText(t.ref.x, t.ref.y - 180, '冰冻免疫', false, 'rgba(100,180,255,1)');
+                    } else {
+                        t.ref.frozenTimer = 3.0;
+                    }
+                } else {
+                    t.ref.frozenTimer = 3.0;
+                }
+            }
+        }
+
+        if (s.anim.done) skillEffects.splice(i, 1);
+    }
+}
+
+function drawSkillEffects(ctx) {
+    for (const s of skillEffects) {
+        const f = s.anim.getFrame(); if (!f) continue;
+        const w = f.width * SKILL_SCALE, h = f.height * SKILL_SCALE;
+        ctx.save();
+        ctx.translate(s.x, s.y);
+        ctx.drawImage(f, -w/2, -h + 79*SKILL_SCALE, w, h); // 底部空白补偿
+        ctx.restore();
+    }
+}
+
 // ===== 血瓶掉落系统 =====
 const potions = [];
 function spawnPotion(x, y) {
@@ -332,8 +421,8 @@ function drawPotions(ctx) {
 const player = {
     x:100, y:FLOOR_Y_1, vy:0, hp:PLAYER_MAX_HP,
     facing:1, state:'idle', grounded:true, falling:false,
-    jumpCount:0,       // 0=地面, 1=一段跳, 2=二段跳
-    doubleJumping:false, // 二段跳无敌状态
+    jumpCount:0, doubleJumping:false,
+    skillCooldown:0, // 技能冷却
     anims:{}, currentAnim:null,
     attackHitChecked:false, idleCooldown:5.0, idlePlaying:false, hurtFlashTimer:0,
 
@@ -346,7 +435,7 @@ const player = {
     },
     reset() {
         this.hp = PLAYER_MAX_HP; this.vy = 0; this.grounded = true; this.falling = false;
-        this.jumpCount = 0; this.doubleJumping = false;
+        this.jumpCount = 0; this.doubleJumping = false; this.skillCooldown = 0;
         this.state = 'idle'; this.hurtFlashTimer = 0; this.idleCooldown = 5.0; this.idlePlaying = false;
     },
     takeDamage(dmg) {
@@ -361,6 +450,7 @@ const player = {
     update(dt) {
         if (game.state === 'gameover') return;
         if (this.hurtFlashTimer > 0) this.hurtFlashTimer -= dt;
+        if (this.skillCooldown > 0) this.skillCooldown -= dt;
 
         if (this.state === 'attack' && this.anims.attack.done) {
             this.state = this.grounded ? 'idle' : 'jump';
@@ -418,6 +508,12 @@ const player = {
                 }
             }
 
+            // 技能（K键）
+            if (consumeKey('KeyK') && this.skillCooldown <= 0) {
+                this.skillCooldown = SKILL_COOLDOWN;
+                spawnSkillEffect(this.x, this.y, this.facing);
+            }
+
             if (consumeKey('KeyJ') || mouseClicked) {
                 mouseClicked = false; this.state = 'attack';
                 this.currentAnim = this.anims.attack; this.currentAnim.reset(); this.attackHitChecked = false;
@@ -468,6 +564,7 @@ class Goblin {
         this.dir = 1; this.hp = GOBLIN_MAX_HP;
         this.dead = false; this.dying = false; this.inCombat = false;
         this.flashTimer = 0; this.atkCooldown = 0; this.isAttacking = false;
+        this.frozenTimer = 0; // 冰冻减速
         this.anims = {
             move: new SpriteAnim(Array.from({length:3},(_,i)=>assets[`goblin-move-${i+1}`]),6),
             attack: new SpriteAnim(Array.from({length:6},(_,i)=>assets[`goblin-attack-${i+1}`]),8,false),
@@ -491,6 +588,8 @@ class Goblin {
         if (this.dead) return;
         if (this.dying) { this.currentAnim.update(dt); if (this.currentAnim.done) this.dead = true; return; }
         if (this.flashTimer > 0) this.flashTimer -= dt;
+        if (this.frozenTimer > 0) this.frozenTimer -= dt;
+        const speedMult = this.frozenTimer > 0 ? 0.7 : 1.0; // 冰冻减速30%
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
         const myLayer = this.y === FLOOR_Y_1 ? 1 : 2;
         const playerHere = game.currentLayer === myLayer;
@@ -512,13 +611,13 @@ class Goblin {
                 this.isAttacking = true; this._atkHit = false; this.dir = dx>0?1:-1;
                 this.currentAnim = this.anims.attack; this.currentAnim.reset();
             } else {
-                this.dir = dx>0?1:-1; this.x += GOBLIN_CHASE_SPEED*this.dir;
+                this.dir = dx>0?1:-1; this.x += GOBLIN_CHASE_SPEED*speedMult*this.dir;
                 if (this.y === FLOOR_Y_2 && this.x > GAP_LEFT-20 && this.x < GAP_RIGHT+20)
                     this.x = this.dir===1 ? GAP_LEFT-20 : GAP_RIGHT+20;
                 this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             }
         } else {
-            this.x += GOBLIN_SPEED*this.dir;
+            this.x += GOBLIN_SPEED*speedMult*this.dir;
             if (this.x >= this.patrolMax) { this.x = this.patrolMax; this.dir = -1; }
             if (this.x <= this.patrolMin) { this.x = this.patrolMin; this.dir = 1; }
             this.currentAnim = this.anims.move; this.currentAnim.update(dt);
@@ -538,6 +637,24 @@ class Goblin {
         } else ctx.drawImage(frame,-w/2,-h+GOBLIN_FOOT_OFFSET,w,h);
         ctx.restore();
         if (this.inCombat && !this.dying) this.drawHPBar(ctx);
+        // 冰冻减速：蓝色叠色 + 头顶减速图标
+        if (this.frozenTimer > 0 && !this.dead && !this.dying) {
+            // 蓝色叠色
+            ctx.save(); ctx.translate(this.x, this.y);
+            if (this.dir === -1) ctx.scale(-1,1);
+            ctx.globalAlpha = 0.3;
+            const fw = frame.width*GOBLIN_SCALE, fh = frame.height*GOBLIN_SCALE;
+            const oc2 = document.createElement('canvas'); oc2.width=Math.ceil(fw); oc2.height=Math.ceil(fh);
+            const ox2 = oc2.getContext('2d'); ox2.drawImage(frame,0,0,fw,fh);
+            ox2.globalCompositeOperation='source-atop'; ox2.fillStyle='#4488ff'; ox2.fillRect(0,0,fw,fh);
+            ctx.drawImage(oc2,-fw/2,-fh+GOBLIN_FOOT_OFFSET);
+            ctx.restore();
+            // 头顶减速图标
+            ctx.save();
+            ctx.font = 'bold 12px "Microsoft YaHei"'; ctx.textAlign = 'center';
+            ctx.fillStyle = '#66bbff'; ctx.fillText('❄', this.x, this.y - 120);
+            ctx.restore();
+        }
     }
     drawHPBar(ctx) {
         const bW=40,bH=5,bx=this.x-bW/2,by=this.y-110,r=this.hp/GOBLIN_MAX_HP;
@@ -560,7 +677,8 @@ class SkeletonKnight {
         // 追击节奏：追几秒→停几秒→再追
         this.chaseTimer = 3.0;   // 追击持续时间
         this.pauseTimer = 0;     // 停顿计时
-        this.pausing = false;    // 是否在停顿中
+        this.pausing = false;
+        this.frozenTimer = 0; // 冰冻减速
         // 狂暴模式
         this.rageUsed = false;
         this.ragePhase = 'none'; // none|warning|dashing
@@ -586,6 +704,7 @@ class SkeletonKnight {
         this.currentAnim = this.anims.dash; this.currentAnim.reset();
         this.atkCooldown = 2.0; this.dashCooldown = 6.0;
         this.chaseTimer = 3.0; this.pauseTimer = 0; this.pausing = false;
+        this.frozenTimer = 0;
         this.rageUsed = false; this.ragePhase = 'none'; this.rageDashCount = 0;
     }
     takeHit(dmg, isCrit) {
@@ -638,6 +757,8 @@ class SkeletonKnight {
         // 冷却
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
         if (this.dashCooldown > 0) this.dashCooldown -= dt;
+        if (this.frozenTimer > 0) this.frozenTimer -= dt;
+        const bossSpeedMult = this.frozenTimer > 0 ? 0.7 : 1.0;
 
         // 狂暴模式：血量<50%时触发
         if (!this.rageUsed && this.hp <= BOSS_MAX_HP * 0.5 && this.hp > 0) {
@@ -729,7 +850,7 @@ class SkeletonKnight {
         } else if (this.state === 'retreat') {
             // 远离玩家再冲刺
             const awayDir = dx > 0 ? -1 : 1;
-            this.x += BOSS_MOVE_SPEED * 1.5 * awayDir;
+            this.x += BOSS_MOVE_SPEED * 1.5 * bossSpeedMult * awayDir;
             this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             if (dist >= DASH_MIN_RANGE || this.x <= 30 || this.x >= CANVAS_W - 30) {
                 // 足够远了，发动冲刺
@@ -747,13 +868,13 @@ class SkeletonKnight {
                 // 跨层追击：走向出口
                 if (bossLayer === 1) {
                     // 一层走向右侧出口
-                    this.x += BOSS_MOVE_SPEED;
+                    this.x += BOSS_MOVE_SPEED * bossSpeedMult;
                     if (this.x > CANVAS_W + 20) {
                         this.y = FLOOR_Y_2; this.x = 30; this.grounded = true; this.falling = false;
                     }
                 } else {
                     // 二层走向左侧出口
-                    this.x -= BOSS_MOVE_SPEED;
+                    this.x -= BOSS_MOVE_SPEED * bossSpeedMult;
                     if (this.x < -20) {
                         this.y = FLOOR_Y_1; this.x = CANVAS_W - 50; this.grounded = true; this.falling = false;
                     }
@@ -782,7 +903,7 @@ class SkeletonKnight {
                 } else {
                     // 追击中
                     this.chaseTimer -= dt;
-                    this.x += BOSS_MOVE_SPEED * this.dir;
+                    this.x += BOSS_MOVE_SPEED * bossSpeedMult * this.dir;
                     // 追击时间到 → 进入停顿
                     if (this.chaseTimer <= 0) {
                         this.pausing = true;
@@ -825,6 +946,21 @@ class SkeletonKnight {
             ctx.drawImage(frame,-w/2,-h+BOSS_FOOT_OFFSET,w,h);
         }
         ctx.restore();
+        // BOSS冰冻效果
+        if (this.frozenTimer > 0) {
+            ctx.save(); ctx.translate(this.x, this.y);
+            if (this.dir === -1) ctx.scale(-1,1);
+            ctx.globalAlpha = 0.25;
+            const fw2 = frame.width*BOSS_SCALE, fh2 = frame.height*BOSS_SCALE;
+            const oc3 = document.createElement('canvas'); oc3.width=Math.ceil(fw2); oc3.height=Math.ceil(fh2);
+            const ox3 = oc3.getContext('2d'); ox3.drawImage(frame,0,0,fw2,fh2);
+            ox3.globalCompositeOperation='source-atop'; ox3.fillStyle='#4488ff'; ox3.fillRect(0,0,fw2,fh2);
+            ctx.drawImage(oc3,-fw2/2,-fh2+BOSS_FOOT_OFFSET);
+            ctx.restore();
+            ctx.save(); ctx.font='bold 16px "Microsoft YaHei"'; ctx.textAlign='center';
+            ctx.fillStyle='#66bbff'; ctx.fillText('❄', this.x, this.y - 200);
+            ctx.restore();
+        }
         // BOSS血条
         this.drawHPBar(ctx);
     }
@@ -931,6 +1067,7 @@ const game = {
         updateProjectiles(dt);
         updateFloatingTexts(dt);
         updatePotions(dt);
+        updateSkillEffects(dt);
         for (const g of this.goblinsL1) g.update(dt);
         for (const g of this.goblinsL2) g.update(dt);
         if (this.boss.active) this.boss.update(dt);
@@ -973,6 +1110,7 @@ const game = {
         player.draw(ctx);
         drawFloatingTexts(ctx);
         drawPotions(ctx);
+        drawSkillEffects(ctx);
         this.drawHUD(ctx);
 
         // 震荡红色警告
@@ -1020,7 +1158,7 @@ const game = {
         this.drawPixelText(ctx,'法师闯关 · BOSS战',CANVAS_W/2,CANVAS_H/2-20,'#a0a0b0',16,'center');
         if (Math.floor(Date.now()/600)%2===0)
             this.drawPixelText(ctx,isTouchDevice?'点击屏幕开始':'按 空格 开始游戏',CANVAS_W/2,CANVAS_H/2+40,'#8888aa',14,'center');
-        this.drawPixelText(ctx,isTouchDevice?'左侧方向移动　右侧跳跃/攻击':'← → 移动　空格 跳跃/二段跳　J/鼠标 攻击',CANVAS_W/2,CANVAS_H/2+80,'#555',11,'center');
+        this.drawPixelText(ctx,isTouchDevice?'左侧方向移动　右侧跳跃/攻击/技能':'← → 移动　空格 跳跃　J攻击　K技能',CANVAS_W/2,CANVAS_H/2+80,'#555',11,'center');
         this.drawPixelText(ctx,'清除哥布林 → 击败骷髅骑士BOSS通关',CANVAS_W/2,CANVAS_H/2+100,'#555',11,'center');
     },
 
@@ -1040,6 +1178,14 @@ const game = {
 
         const lt=this.currentLayer===1?'地牢下层':'地牢上层';
         this.drawPixelText(ctx,lt,CANVAS_W-16,26,'rgba(200,200,220,0.5)',12,'right');
+
+        // 技能冷却提示
+        const skCD = Math.ceil(player.skillCooldown);
+        if (skCD > 0) {
+            this.drawPixelText(ctx,`技能 ${skCD}s`,CANVAS_W-16,46,'#6688aa',11,'right');
+        } else {
+            this.drawPixelText(ctx,'技能 就绪',CANVAS_W-16,46,'#66ccff',11,'right');
+        }
     },
 
     drawPixelText(ctx, text, x, y, color, size, align) {
