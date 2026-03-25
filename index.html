@@ -310,6 +310,15 @@ const SKILL_DMG = 60, SKILL_COOLDOWN = 8, SKILL_RANGE = 120;
 const SKILL_SCALE = 0.2;
 const skillEffects = [];
 
+function hasSkillTarget(px) {
+    const goblins = game.currentLayer === 1 ? game.goblinsL1 : game.goblinsL2;
+    for (const g of goblins) {
+        if (!g.dead && !g.dying && Math.abs(g.x - px) < PROJECTILE_RANGE) return true;
+    }
+    if (game.boss && game.boss.active && !game.boss.dead && Math.abs(game.boss.x - px) < PROJECTILE_RANGE) return true;
+    return false;
+}
+
 function spawnSkillEffect(x, y, dir) {
     // 锁定射程内最近的敌人
     let targetX = x + dir * 80; // 默认前方80px
@@ -523,8 +532,12 @@ const player = {
 
             // 技能（K键）
             if (consumeKey('KeyK') && this.skillCooldown <= 0) {
-                this.skillCooldown = SKILL_COOLDOWN;
-                spawnSkillEffect(this.x, this.y, this.facing);
+                if (hasSkillTarget(this.x)) {
+                    this.skillCooldown = SKILL_COOLDOWN;
+                    spawnSkillEffect(this.x, this.y, this.facing);
+                } else {
+                    addFloatingText(this.x, this.y - 80, '范围内无目标', false, 'rgba(180,180,180,1)');
+                }
             }
 
             if (consumeKey('KeyJ') || mouseClicked) {
