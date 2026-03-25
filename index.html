@@ -865,7 +865,7 @@ class SkeletonKnight {
         } else {
             // move：追击玩家
             const playerLayer = game.currentLayer;
-            if (bossLayer !== playerLayer) {
+            if (bossLayer !== playerLayer && !(game.bossPhase === 'fighting')) {
                 // 跨层追击：走向出口
                 if (bossLayer === 1) {
                     // 一层走向右侧出口
@@ -1102,8 +1102,9 @@ const game = {
         for (const g of this.goblinsL2) g.update(dt);
         if (this.boss.active) this.boss.update(dt);
 
-        // 场景切换
-        if (this.currentLayer===1 && player.x > CANVAS_W+20) {
+        // 场景切换（BOSS阶段锁定一层）
+        const bossActive = this.bossPhase === 'shaking' || this.bossPhase === 'fighting';
+        if (this.currentLayer===1 && player.x > CANVAS_W+20 && !bossActive) {
             this.currentLayer=2; player.x=30; player.y=FLOOR_Y_2;
             player.grounded=true; player.vy=0; player.jumpCount=0; player.doubleJumping=false;
             projectiles.length=0;
@@ -1114,6 +1115,8 @@ const game = {
             projectiles.length=0;
         }
         if (this.currentLayer===2 && player.x > CANVAS_W-30) player.x=CANVAS_W-30;
+        // BOSS阶段一层右侧边界
+        if (bossActive && this.currentLayer===1 && player.x > CANVAS_W-30) player.x=CANVAS_W-30;
     },
 
     draw(ctx) {
