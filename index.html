@@ -48,9 +48,13 @@ const SPRITE_SCALE = 0.18;
 const GOBLIN_SCALE = 0.15;
 const EFFECT_SCALE = 0.12;
 
-// 地面Y坐标（根据新版地平线参考图红线位置）
-const FLOOR_Y_1 = 442;          // 第一层（下层）地面Y
-const FLOOR_Y_2 = 200;          // 第二层（上层）地面Y
+// 精灵图底部空白补偿（实际像素检测：法师82px, 哥布林78px空白）
+const MAGE_FOOT_OFFSET = 82 * SPRITE_SCALE;    // ≈14.8px
+const GOBLIN_FOOT_OFFSET = 78 * GOBLIN_SCALE;  // ≈11.7px
+
+// 地面Y坐标（像素级精确检测红线位置）
+const FLOOR_Y_1 = 471;          // 第一层（下层）红线底部
+const FLOOR_Y_2 = 202;          // 第二层（上层）红线底部
 
 // HP与伤害
 const PLAYER_MAX_HP = 100;
@@ -70,16 +74,15 @@ const PROJECTILE_RANGE = 270;   // 射程（原90*3）
 const JUMP_VELOCITY = -8;
 const GRAVITY = 0.35;
 
-// 二层地面断裂区域（蓝色方块标记位置，画布坐标）
-const GAP_LEFT = 430;
-const GAP_RIGHT = 510;
+// 二层地面断裂区域（像素级精确检测蓝色方块位置）
+const GAP_LEFT = 448;
+const GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
 const assets = {};
 const toLoad = [];
 
-const CACHE_BUST = 'v=' + Date.now();
-function regImg(key, src) { toLoad.push({ key, src: src + '?' + CACHE_BUST }); }
+function regImg(key, src) { toLoad.push({ key, src }); }
 
 // 法师序列帧
 for (let i = 1; i <= 6; i++) regImg(`mage-idle-${i}`, `assets/sprites/mage-idle/${i}.png`);
@@ -110,7 +113,6 @@ function loadAll() {
 
         for (const item of toLoad) {
             const img = new Image();
-            img.crossOrigin = 'anonymous';
             img.onload = () => { assets[item.key] = img; done(); };
             img.onerror = () => { console.warn('Failed:', item.src); done(); };
             img.src = item.src;
@@ -312,6 +314,7 @@ const player = {
         this.hp = PLAYER_MAX_HP;
         this.vy = 0;
         this.grounded = true;
+        this.falling = false;
         this.state = 'idle';
         this.hurtFlashTimer = 0;
         this.idleCooldown = 5.0;
@@ -334,7 +337,7 @@ const player = {
 
     isOverGap() {
         // 只有二层有断裂
-        if (game.currentLayer !== 2) return false;
+        if (game.currentLayer !== 2 && !this.falling) return false;
         return this.x > GAP_LEFT && this.x < GAP_RIGHT;
     },
 
@@ -344,8 +347,6 @@ const player = {
         // 受击闪烁计时
         if (this.hurtFlashTimer > 0) this.hurtFlashTimer -= dt;
 
-        const floorY = this.getFloorY();
-
         // 攻击动画结束后回到idle
         if (this.state === 'attack' && this.anims.attack.done) {
             this.state = this.grounded ? 'idle' : 'jump';
@@ -353,20 +354,40 @@ const player = {
             this.idlePlaying = false;
         }
 
+        // 跌落过程（从二层掉到一层，自然下落）
+        if (this.falling) {
+            this.vy += GRAVITY;
+            this.y += this.vy;
+            if (this.y >= FLOOR_Y_1) {
+                this.y = FLOOR_Y_1;
+                this.vy = 0;
+                this.grounded = true;
+                this.falling = false;
+                this.state = 'idle';
+            }
+            // 跌落中只允许左右微调，不处理其他输入
+            if (keys['ArrowLeft'] || keys['KeyA']) { this.x -= PLAYER_SPEED * 0.5; this.facing = -1; }
+            if (keys['ArrowRight'] || keys['KeyD']) { this.x += PLAYER_SPEED * 0.5; this.facing = 1; }
+            this.currentAnim = this.anims.jump;
+            this.currentAnim.update(dt);
+            if (this.x < 30) this.x = 30;
+            mouseClicked = false;
+            return;
+        }
+
+        const floorY = this.getFloorY();
+
         // 跳跃/下落物理
         if (!this.grounded) {
             this.vy += GRAVITY;
             this.y += this.vy;
 
-            // 检查是否落在断裂区域
             if (this.y >= floorY) {
-                if (this.isOverGap()) {
-                    // 从二层掉落到一层
+                if (game.currentLayer === 2 && this.isOverGap()) {
+                    // 进入跌落状态：切换到一层，保持当前y，自然下落
                     game.currentLayer = 1;
-                    this.y = FLOOR_Y_1;
-                    this.vy = 0;
-                    this.grounded = true;
-                    this.state = 'idle';
+                    this.falling = true;
+                    this.grounded = false;
                 } else {
                     this.y = floorY;
                     this.vy = 0;
@@ -376,10 +397,12 @@ const player = {
             }
         } else {
             // 站在地面上时检查是否踩在断裂上
-            if (this.isOverGap()) {
+            if (game.currentLayer === 2 && this.isOverGap()) {
+                // 进入跌落状态
+                game.currentLayer = 1;
                 this.grounded = false;
+                this.falling = true;
                 this.vy = 0;
-                // 从二层掉到一层
             }
         }
 
@@ -470,7 +493,7 @@ const player = {
         ctx.save();
         ctx.translate(this.x, this.y);
         if (this.facing === -1) ctx.scale(-1, 1);
-        ctx.drawImage(frame, -w / 2, -h, w, h);
+        ctx.drawImage(frame, -w / 2, -h + MAGE_FOOT_OFFSET, w, h);
         ctx.restore();
     }
 };
@@ -536,15 +559,30 @@ class Goblin {
         // 攻击冷却
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
 
+        // 判断玩家是否在本层
+        const myLayer = this.y === FLOOR_Y_1 ? 1 : 2;
+        const playerOnMyLayer = game.currentLayer === myLayer;
+
+        // 玩家不在本层时，重置战斗状态回到巡逻
+        if (!playerOnMyLayer) {
+            if (this.isAttacking) {
+                this.isAttacking = false;
+                this.currentAnim = this.anims.move;
+                this.currentAnim.reset();
+            }
+            this.inCombat = false;
+            this.atkCooldown = 0;
+        }
+
         // 检查仇恨范围
-        if (!this.inCombat && game.currentLayer === (this.y === FLOOR_Y_1 ? 1 : 2)) {
+        if (!this.inCombat && playerOnMyLayer) {
             const dx = Math.abs(player.x - this.x);
             if (dx < AGGRO_RANGE) {
                 this.inCombat = true;
             }
         }
 
-        if (this.inCombat && game.currentLayer === (this.y === FLOOR_Y_1 ? 1 : 2)) {
+        if (this.inCombat && playerOnMyLayer) {
             // 战斗模式：朝法师移动
             const dx = player.x - this.x;
             const dist = Math.abs(dx);
@@ -575,6 +613,12 @@ class Goblin {
                 // 追击
                 this.dir = dx > 0 ? 1 : -1;
                 this.x += GOBLIN_CHASE_SPEED * this.dir;
+                // 二层哥布林不越过断裂区域
+                if (this.y === FLOOR_Y_2) {
+                    if (this.x > GAP_LEFT - 20 && this.x < GAP_RIGHT + 20) {
+                        this.x = this.dir === 1 ? GAP_LEFT - 20 : GAP_RIGHT + 20;
+                    }
+                }
                 this.currentAnim = this.anims.move;
                 this.currentAnim.update(dt);
             }
@@ -586,7 +630,7 @@ class Goblin {
             this.currentAnim = this.anims.move;
             this.currentAnim.update(dt);
         }
-    },
+    }
 
     draw(ctx) {
         if (this.dead) return;
@@ -600,15 +644,19 @@ class Goblin {
         ctx.translate(this.x, this.y);
         if (this.dir === -1) ctx.scale(-1, 1);
 
-        // 受击红色闪烁效果（红色叠色，不隐藏）
+        // 受击红色闪烁效果 — 用离屏Canvas确保只在精灵像素上叠色
         if (this.flashTimer > 0 && Math.floor(this.flashTimer * 8) % 2 === 0) {
-            ctx.drawImage(frame, -w / 2, -h, w, h);
-            ctx.globalCompositeOperation = 'source-atop';
-            ctx.fillStyle = 'rgba(255,0,0,0.4)';
-            ctx.fillRect(-w / 2, -h, w, h);
-            ctx.globalCompositeOperation = 'source-over';
+            const offCvs = document.createElement('canvas');
+            offCvs.width = Math.ceil(w);
+            offCvs.height = Math.ceil(h);
+            const offCtx = offCvs.getContext('2d');
+            offCtx.drawImage(frame, 0, 0, w, h);
+            offCtx.globalCompositeOperation = 'source-atop';
+            offCtx.fillStyle = 'rgba(255,0,0,0.45)';
+            offCtx.fillRect(0, 0, w, h);
+            ctx.drawImage(offCvs, -w / 2, -h + GOBLIN_FOOT_OFFSET);
         } else {
-            ctx.drawImage(frame, -w / 2, -h, w, h);
+            ctx.drawImage(frame, -w / 2, -h + GOBLIN_FOOT_OFFSET, w, h);
         }
         ctx.restore();
 
@@ -616,7 +664,7 @@ class Goblin {
         if (this.inCombat && !this.dying) {
             this.drawHPBar(ctx);
         }
-    },
+    }
 
     drawHPBar(ctx) {
         const barW = 40;
@@ -672,10 +720,10 @@ const game = {
             new Goblin(350, FLOOR_Y_1, 150, 500),
             new Goblin(750, FLOOR_Y_1, 550, 900),
         ];
-        // 第二层2只哥布林
+        // 第二层2只哥布林（巡逻范围不越过断裂区域）
         this.goblinsL2 = [
-            new Goblin(250, FLOOR_Y_2, 80, 400),
-            new Goblin(700, FLOOR_Y_2, 540, 880),
+            new Goblin(250, FLOOR_Y_2, 80, GAP_LEFT - 20),
+            new Goblin(700, FLOOR_Y_2, GAP_RIGHT + 20, 880),
         ];
     },
 
@@ -727,24 +775,16 @@ const game = {
             return;
         }
 
-        if (this.state === 'transition') {
-            this.transTimer -= dt;
-            if (this.transTimer <= 0) {
-                this.state = 'play';
-            }
-            return;
-        }
-
         // play状态
         player.update(dt);
         updateProjectiles(dt);
         updateFloatingTexts(dt);
 
-        // 当前层哥布林更新（两层都更新仇恨检测，但只有当前层的哥布林进行战斗）
+        // 两层哥布林都更新
         for (const g of this.goblinsL1) g.update(dt);
         for (const g of this.goblinsL2) g.update(dt);
 
-        // 场景切换：一层右侧出境 → 二层左侧入场
+        // 场景切换：一层右侧出境 → 二层左侧入场（无缝）
         if (this.currentLayer === 1 && player.x > CANVAS_W + 20) {
             this.currentLayer = 2;
             player.x = 30;
@@ -752,11 +792,9 @@ const game = {
             player.grounded = true;
             player.vy = 0;
             projectiles.length = 0;
-            this.state = 'transition';
-            this.transTimer = 0.3;
         }
 
-        // 二层左侧出境 → 返回一层右侧
+        // 二层左侧出境 → 返回一层右侧（无缝）
         if (this.currentLayer === 2 && player.x < -20) {
             this.currentLayer = 1;
             player.x = CANVAS_W - 50;
@@ -764,8 +802,6 @@ const game = {
             player.grounded = true;
             player.vy = 0;
             projectiles.length = 0;
-            this.state = 'transition';
-            this.transTimer = 0.3;
         }
 
         // 二层右侧边界
@@ -788,18 +824,11 @@ const game = {
             ctx.drawImage(this.mapImg, 0, 0, CANVAS_W, CANVAS_H);
         }
 
-        // 层级暗化
-        if (this.currentLayer === 1) {
-            ctx.fillStyle = 'rgba(0,0,0,0.35)';
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H / 2 - 10);
-        } else {
-            ctx.fillStyle = 'rgba(0,0,0,0.35)';
-            ctx.fillRect(0, CANVAS_H / 2 + 10, CANVAS_W, CANVAS_H / 2);
-        }
+        // （已移除层级暗化蒙版）
 
-        // 绘制当前层哥布林
-        const goblins = this.getCurrentGoblins();
-        for (const g of goblins) g.draw(ctx);
+        // 绘制两层所有哥布林
+        for (const g of this.goblinsL1) g.draw(ctx);
+        for (const g of this.goblinsL2) g.draw(ctx);
 
         // 绘制弹射物
         drawProjectiles(ctx);
@@ -812,13 +841,6 @@ const game = {
 
         // HUD
         this.drawHUD(ctx);
-
-        // 过渡效果
-        if (this.state === 'transition') {
-            const alpha = this.transTimer / 0.3;
-            ctx.fillStyle = `rgba(0,0,0,${alpha * 0.6})`;
-            ctx.fillRect(0, 0, CANVAS_W, CANVAS_H);
-        }
 
         // 通关提示
         if (this.state === 'clear') {
