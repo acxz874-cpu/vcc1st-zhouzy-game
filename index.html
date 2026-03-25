@@ -1060,6 +1060,13 @@ const game = {
             this.bossPhase = 'shaking';
             this.shakeTimer = 3.0;
             this.shakeIntensity = 6;
+            // 如果玩家在二层，强制掉落到一层
+            if (this.currentLayer === 2) {
+                this.currentLayer = 1;
+                player.grounded = false;
+                player.falling = true;
+                player.vy = 0;
+            }
         }
     },
     onBossKilled() {
