@@ -293,6 +293,41 @@ function drawProjectiles(ctx) {
     }
 }
 
+// ===== 血瓶掉落系统 =====
+const potions = [];
+function spawnPotion(x, y) {
+    potions.push({ x, y, life: 15.0, collected: false });
+}
+function updatePotions(dt) {
+    for (let i = potions.length - 1; i >= 0; i--) {
+        const p = potions[i];
+        p.life -= dt;
+        if (p.life <= 0) { potions.splice(i, 1); continue; }
+        // 玩家碰触检测
+        if (!p.collected && Math.abs(player.x - p.x) < 30 && Math.abs(player.y - p.y) < 30) {
+            p.collected = true;
+            player.hp = Math.min(player.hp + 20, PLAYER_MAX_HP);
+            potions.splice(i, 1);
+        }
+    }
+}
+function drawPotions(ctx) {
+    for (const p of potions) {
+        // 最后2秒闪烁
+        if (p.life < 2.0 && Math.floor(p.life * 6) % 2 === 0) continue;
+        const px = p.x, py = p.y;
+        // 像素风红色药瓶
+        ctx.fillStyle = '#cc2222';
+        ctx.fillRect(px - 5, py - 16, 10, 12);  // 瓶身
+        ctx.fillStyle = '#aa1111';
+        ctx.fillRect(px - 3, py - 20, 6, 4);    // 瓶口
+        ctx.fillStyle = '#ffaaaa';
+        ctx.fillRect(px - 3, py - 14, 3, 4);    // 高光
+        ctx.fillStyle = '#882222';
+        ctx.fillRect(px - 6, py - 5, 12, 2);    // 瓶底
+    }
+}
+
 // ===== 玩家法师 =====
 const player = {
     x:100, y:FLOOR_Y_1, vy:0, hp:PLAYER_MAX_HP,
@@ -447,6 +482,8 @@ class Goblin {
         if (this.hp <= 0) {
             this.hp = 0; this.dying = true; this.isAttacking = false;
             this.currentAnim = this.anims.death; this.currentAnim.reset();
+            // 30%概率掉落血瓶
+            if (Math.random() < 0.3) spawnPotion(this.x, this.y);
             game.checkGoblinsCleared();
         }
     }
@@ -520,6 +557,12 @@ class SkeletonKnight {
         this.flashTimer = 0; this.atkCooldown = 2.0; this.dashCooldown = 5.0;
         this._atkHit1 = false; this._atkHit2 = false;
         this.dashStartX = 0;
+        // 狂暴模式
+        this.rageUsed = false;
+        this.ragePhase = 'none'; // none|warning|dashing
+        this.rageDashCount = 0;
+        this.rageDashDelay = 0;
+        this.rageWarningTimer = 0;
         this.anims = {};
         this.currentAnim = null;
     }
@@ -538,6 +581,7 @@ class SkeletonKnight {
         this.state = 'dash'; this.dashStartX = this.x;
         this.currentAnim = this.anims.dash; this.currentAnim.reset();
         this.atkCooldown = 2.0; this.dashCooldown = 6.0;
+        this.rageUsed = false; this.ragePhase = 'none'; this.rageDashCount = 0;
     }
     takeHit(dmg, isCrit) {
         if (this.dead || this.dying) return;
@@ -588,6 +632,39 @@ class SkeletonKnight {
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
         if (this.dashCooldown > 0) this.dashCooldown -= dt;
 
+        // 狂暴模式：血量<50%时触发
+        if (!this.rageUsed && this.hp <= BOSS_MAX_HP * 0.5 && this.hp > 0) {
+            this.rageUsed = true;
+            this.ragePhase = 'warning';
+            this.rageWarningTimer = 1.5;
+            this.state = 'move'; // 暂停当前动作
+        }
+        if (this.ragePhase === 'warning') {
+            this.rageWarningTimer -= dt;
+            this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+            if (this.rageWarningTimer <= 0) {
+                this.ragePhase = 'dashing';
+                this.rageDashCount = 0;
+                this.rageDashDelay = 0;
+            }
+            return; // 警告期间不执行其他逻辑
+        }
+        if (this.ragePhase === 'dashing') {
+            if (this.state !== 'dash') {
+                this.rageDashDelay -= dt;
+                if (this.rageDashDelay <= 0 && this.rageDashCount < 3) {
+                    // 发起一次冲刺
+                    this.rageDashCount++;
+                    this.state = 'dash'; this.dashStartX = this.x;
+                    this.dir = (player.x - this.x) > 0 ? 1 : -1;
+                    this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                }
+                if (this.rageDashCount >= 3 && this.state !== 'dash') {
+                    this.ragePhase = 'none'; this.dashCooldown = 5.0;
+                }
+            }
+        }
+
         const dx = player.x - this.x;
         const dist = Math.abs(dx);
         // 冲刺中不改变方向（直线移动）
@@ -600,12 +677,16 @@ class SkeletonKnight {
             // 冲刺伤害判定
             if (dist < 50 && !player.doubleJumping) {
                 player.takeDamage(BOSS_DASH_DMG);
-                this.state = 'move'; this.dashCooldown = 5.0;
+                this.state = 'move';
+                if (this.ragePhase === 'dashing') this.rageDashDelay = 0.5;
+                else this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
             }
             // 冲刺距离限制或到达玩家附近
             if (Math.abs(this.x - this.dashStartX) > 400 || this.x < 20 || this.x > CANVAS_W - 20) {
-                this.state = 'move'; this.dashCooldown = 5.0;
+                this.state = 'move';
+                if (this.ragePhase === 'dashing') this.rageDashDelay = 0.5;
+                else this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
             }
             // 边界
@@ -649,7 +730,7 @@ class SkeletonKnight {
                 if (dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
                     this.state = 'attack'; this._atkHit1 = false; this._atkHit2 = false;
                     this.currentAnim = this.anims.attack; this.currentAnim.reset();
-                } else if (dist > 200 && this.dashCooldown <= 0) {
+                } else if (dist > 200 && this.dashCooldown <= 0 && Math.random() < 0.2) {
                     this.state = 'dash'; this.dashStartX = this.x;
                     this.currentAnim = this.anims.dash; this.currentAnim.reset();
                 } else {
@@ -681,12 +762,25 @@ class SkeletonKnight {
         this.drawHPBar(ctx);
     }
     drawHPBar(ctx) {
-        const bW=200, bH=10, bx=CANVAS_W/2-bW/2, by=18, r=this.hp/BOSS_MAX_HP;
-        ctx.fillStyle='#1a0a0a'; ctx.fillRect(bx-2,by-2,bW+4,bH+4);
-        ctx.fillStyle='#330000'; ctx.fillRect(bx,by,bW,bH);
-        ctx.fillStyle=r>0.5?'#cc2222':r>0.25?'#cc6622':'#cc2222'; ctx.fillRect(bx,by,bW*r,bH);
-        ctx.strokeStyle='#aa4444'; ctx.lineWidth=1; ctx.strokeRect(bx-2,by-2,bW+4,bH+4);
-        game.drawPixelText(ctx, `骷髅骑士`, bx+bW/2, by+bH+12, '#ff6666', 10, 'center');
+        // 画面顶部巨大像素风BOSS血条
+        const bW=400, bH=16, bx=CANVAS_W/2-bW/2, by=12, r=this.hp/BOSS_MAX_HP;
+        // 外框
+        ctx.fillStyle='#0a0a0a'; ctx.fillRect(bx-3,by-3,bW+6,bH+6);
+        // 底色
+        ctx.fillStyle='#2a0000'; ctx.fillRect(bx,by,bW,bH);
+        // 血量
+        const hpColor = r > 0.5 ? '#cc2222' : r > 0.25 ? '#dd4400' : '#ff0000';
+        ctx.fillStyle=hpColor; ctx.fillRect(bx,by,bW*r,bH);
+        // 像素格纹理
+        ctx.fillStyle='rgba(255,255,255,0.08)';
+        for (let i = 0; i < bW * r; i += 4) ctx.fillRect(bx + i, by, 2, bH);
+        // 边框
+        ctx.strokeStyle='#cc4444'; ctx.lineWidth=2; ctx.strokeRect(bx-3,by-3,bW+6,bH+6);
+        ctx.strokeStyle='#661111'; ctx.lineWidth=1; ctx.strokeRect(bx-1,by-1,bW+2,bH+2);
+        // 标题
+        game.drawPixelText(ctx, '骷髅骑士', bx+bW/2, by+bH+14, '#ff6666', 12, 'center');
+        // HP数值
+        game.drawPixelText(ctx, `${this.hp}/${BOSS_MAX_HP}`, bx+bW/2, by+bH/2, '#fff', 10, 'center');
     }
 }
 
@@ -709,7 +803,7 @@ const game = {
         this.currentLayer = 1;
         player.x = 100; player.y = FLOOR_Y_1; player.reset();
         player.facing = 1; player.currentAnim = player.anims.idle;
-        projectiles.length = 0; floatingTexts.length = 0;
+        projectiles.length = 0; floatingTexts.length = 0; potions.length = 0;
         this.bossPhase = 'inactive'; this.shakeTimer = 0;
         this.boss.active = false; this.boss.dead = false; this.boss.dying = false;
         // 一层3只哥布林
@@ -731,7 +825,7 @@ const game = {
         if (allDead && this.bossPhase === 'inactive') {
             // 开始BOSS出场流程
             this.bossPhase = 'shaking';
-            this.shakeTimer = 1.5;
+            this.shakeTimer = 3.0;
             this.shakeIntensity = 6;
         }
     },
@@ -769,6 +863,7 @@ const game = {
         player.update(dt);
         updateProjectiles(dt);
         updateFloatingTexts(dt);
+        updatePotions(dt);
         for (const g of this.goblinsL1) g.update(dt);
         for (const g of this.goblinsL2) g.update(dt);
         if (this.boss.active) this.boss.update(dt);
@@ -810,13 +905,30 @@ const game = {
         drawProjectiles(ctx);
         player.draw(ctx);
         drawFloatingTexts(ctx);
+        drawPotions(ctx);
         this.drawHUD(ctx);
 
-        // 震荡提示
+        // 震荡红色警告
         if (this.bossPhase==='shaking') {
-            ctx.fillStyle='rgba(0,0,0,0.3)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
-            if (Math.floor(Date.now()/300)%2===0)
-                this.drawPixelText(ctx,'! BOSS 登场 !',CANVAS_W/2,CANVAS_H/2,'#ff4444',28,'center');
+            // 红色闪烁全屏
+            const rAlpha = 0.15 + 0.1 * Math.sin(Date.now() * 0.01);
+            ctx.fillStyle=`rgba(180,0,0,${rAlpha})`; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            // 屏幕边缘红色渐变
+            const grd = ctx.createRadialGradient(CANVAS_W/2,CANVAS_H/2,100,CANVAS_W/2,CANVAS_H/2,CANVAS_W/2);
+            grd.addColorStop(0,'rgba(0,0,0,0)'); grd.addColorStop(1,'rgba(150,0,0,0.4)');
+            ctx.fillStyle=grd; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            if (Math.floor(Date.now()/400)%2===0)
+                this.drawPixelText(ctx,'! 警 告 !',CANVAS_W/2,CANVAS_H/2-20,'#ff2222',32,'center');
+            this.drawPixelText(ctx,'强大的敌人正在靠近...',CANVAS_W/2,CANVAS_H/2+20,'#cc8888',14,'center');
+        }
+
+        // BOSS狂暴红色警告
+        if (this.boss && this.boss.active && this.boss.ragePhase === 'warning') {
+            const rAlpha = 0.12 + 0.08 * Math.sin(Date.now() * 0.015);
+            ctx.fillStyle=`rgba(200,0,0,${rAlpha})`; ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+            if (Math.floor(Date.now()/250)%2===0)
+                this.drawPixelText(ctx,'! 狂 暴 !',CANVAS_W/2,CANVAS_H/2,'#ff0000',30,'center');
         }
 
         if (this.state==='clear') {
