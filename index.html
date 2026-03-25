@@ -99,7 +99,7 @@ const PLAYER_MAX_HP = 200;
 const GOBLIN_MAX_HP = 75;
 const PLAYER_DMG = 25, PLAYER_CRIT_DMG = 35, CRIT_CHANCE = 0.2;
 const GOBLIN_DMG = 20;
-const BOSS_MAX_HP = 400;
+const BOSS_MAX_HP = 300;
 const BOSS_DASH_DMG = 40, BOSS_ATK_DMG = 10; // 两段各10，合计20
 
 // 战斗参数
@@ -114,7 +114,7 @@ const JUMP_VELOCITY = -8, GRAVITY = 0.35;
 const GAP_LEFT = 448, GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
-const ASSET_VER = '7';
+const ASSET_VER = '8';
 const assets = {};
 const toLoad = [];
 function regImg(key, src) { toLoad.push({ key, src: src + '?v=' + ASSET_VER }); }
@@ -250,9 +250,9 @@ function updateProjectiles(dt) {
         p.x += PROJECTILE_SPEED * p.dir; p.anim.update(dt);
         if (Math.abs(p.x - p.startX) > PROJECTILE_RANGE || p.x < -20 || p.x > CANVAS_W + 20) { projectiles.splice(i, 1); continue; }
 
-        // 命中哥布林
+        // 命中哥布林（只检测同层）
         let hit = false;
-        const goblins = [...game.goblinsL1, ...game.goblinsL2];
+        const goblins = game.currentLayer === 1 ? game.goblinsL1 : game.goblinsL2;
         for (const g of goblins) {
             if (g.dead || g.dying) continue;
             if (Math.abs(p.x - g.x) < 40) {
@@ -508,7 +508,7 @@ class Goblin {
                     if (Math.abs(player.x-this.x) < GOBLIN_ATK_RANGE+20) player.takeDamage(GOBLIN_DMG);
                 }
                 if (this.currentAnim.done) { this.isAttacking = false; this.atkCooldown = 1.0; this.currentAnim = this.anims.move; }
-            } else if (dist < GOBLIN_ATK_RANGE && this.atkCooldown <= 0) {
+            } else if (dist < GOBLIN_ATK_RANGE && this.atkCooldown <= 0 && player.grounded) {
                 this.isAttacking = true; this._atkHit = false; this.dir = dx>0?1:-1;
                 this.currentAnim = this.anims.attack; this.currentAnim.reset();
             } else {
@@ -650,16 +650,21 @@ class SkeletonKnight {
             return; // 警告期间不执行其他逻辑
         }
         if (this.ragePhase === 'dashing') {
-            if (this.state !== 'dash') {
+            if (this.state !== 'dash' && this.state !== 'retreat') {
                 this.rageDashDelay -= dt;
                 if (this.rageDashDelay <= 0 && this.rageDashCount < 3) {
-                    // 发起一次冲刺
                     this.rageDashCount++;
-                    this.state = 'dash'; this.dashStartX = this.x;
-                    this.dir = (player.x - this.x) > 0 ? 1 : -1;
-                    this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                    this._dashHitDone = false;
+                    const rdx = player.x - this.x;
+                    if (Math.abs(rdx) >= 250) {
+                        this.state = 'dash'; this.dashStartX = this.x;
+                        this.dir = rdx > 0 ? 1 : -1;
+                        this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                    } else {
+                        this.state = 'retreat';
+                    }
                 }
-                if (this.rageDashCount >= 3 && this.state !== 'dash') {
+                if (this.rageDashCount >= 3 && this.state !== 'dash' && this.state !== 'retreat') {
                     this.ragePhase = 'none'; this.dashCooldown = 5.0;
                 }
             }
@@ -667,72 +672,96 @@ class SkeletonKnight {
 
         const dx = player.x - this.x;
         const dist = Math.abs(dx);
+        const playerJumping = !player.grounded;
         // 冲刺中不改变方向（直线移动）
         if (this.state !== 'dash') this.dir = dx > 0 ? 1 : -1;
 
+        const DASH_DIST = CANVAS_W * 0.5; // 冲刺固定半个地图宽度
+        const DASH_MIN_RANGE = 250; // BOSS需要离玩家至少250px才会冲刺
+
         if (this.state === 'dash') {
-            // 冲刺移动
+            // 冲刺移动（固定距离，不因命中停止）
             this.x += BOSS_DASH_SPEED * this.dir;
             this.currentAnim = this.anims.dash; this.currentAnim.update(dt);
-            // 冲刺伤害判定
-            if (dist < 50 && !player.doubleJumping) {
+            // 冲刺途中伤害判定（可多次检测但只命中一次）
+            if (dist < 50 && !player.doubleJumping && !this._dashHitDone) {
+                this._dashHitDone = true;
                 player.takeDamage(BOSS_DASH_DMG);
+            }
+            // 冲刺结束：固定距离或到边界
+            if (Math.abs(this.x - this.dashStartX) >= DASH_DIST || this.x <= 30 || this.x >= CANVAS_W - 30) {
                 this.state = 'move';
                 if (this.ragePhase === 'dashing') this.rageDashDelay = 0.5;
                 else this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
             }
-            // 冲刺距离限制或到达玩家附近
-            if (Math.abs(this.x - this.dashStartX) > 400 || this.x < 20 || this.x > CANVAS_W - 20) {
-                this.state = 'move';
-                if (this.ragePhase === 'dashing') this.rageDashDelay = 0.5;
-                else this.dashCooldown = 5.0;
-                this.currentAnim = this.anims.move;
-            }
-            // 边界
             if (this.x < 30) this.x = 30;
             if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
 
         } else if (this.state === 'attack') {
             this.currentAnim.update(dt);
-            // 两段攻击判定：第2帧第一段，第4帧(done)第二段
+            // 两段攻击判定
             if (this.anims.attack.idx >= 1 && !this._atkHit1) {
                 this._atkHit1 = true;
-                if (dist < BOSS_ATK_RANGE) player.takeDamage(BOSS_ATK_DMG);
+                if (dist < BOSS_ATK_RANGE && !playerJumping) player.takeDamage(BOSS_ATK_DMG);
             }
             if (this.anims.attack.idx >= 3 && !this._atkHit2) {
                 this._atkHit2 = true;
-                if (dist < BOSS_ATK_RANGE) player.takeDamage(BOSS_ATK_DMG);
+                if (dist < BOSS_ATK_RANGE && !playerJumping) player.takeDamage(BOSS_ATK_DMG);
             }
             if (this.currentAnim.done) {
                 this.state = 'move'; this.atkCooldown = 2.0;
                 this.currentAnim = this.anims.move;
             }
 
+        } else if (this.state === 'retreat') {
+            // 远离玩家再冲刺
+            const awayDir = dx > 0 ? -1 : 1;
+            this.x += BOSS_MOVE_SPEED * 1.5 * awayDir;
+            this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+            if (dist >= DASH_MIN_RANGE || this.x <= 30 || this.x >= CANVAS_W - 30) {
+                // 足够远了，发动冲刺
+                this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
+                this.dir = dx > 0 ? 1 : -1;
+                this.currentAnim = this.anims.dash; this.currentAnim.reset();
+            }
+            if (this.x < 30) this.x = 30;
+            if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
+
         } else {
             // move：追击玩家
-            // 判断是否同层
             const playerLayer = game.currentLayer;
             if (bossLayer !== playerLayer) {
-                // 追向层切换出口
-                const targetX = bossLayer === 1 ? CANVAS_W + 20 : -20;
-                this.x += BOSS_MOVE_SPEED * (targetX > this.x ? 1 : -1);
-                this.currentAnim = this.anims.move; this.currentAnim.update(dt);
-                if (bossLayer === 1 && this.x > CANVAS_W + 20) {
-                    // 切到二层
-                    this.y = FLOOR_Y_2; this.x = 30; this.grounded = true; this.falling = false;
-                } else if (bossLayer === 2 && this.x < -20) {
-                    this.y = FLOOR_Y_1; this.x = CANVAS_W - 50; this.grounded = true; this.falling = false;
+                // 跨层追击：走向出口
+                if (bossLayer === 1) {
+                    // 一层走向右侧出口
+                    this.x += BOSS_MOVE_SPEED;
+                    if (this.x > CANVAS_W + 20) {
+                        this.y = FLOOR_Y_2; this.x = 30; this.grounded = true; this.falling = false;
+                    }
+                } else {
+                    // 二层走向左侧出口
+                    this.x -= BOSS_MOVE_SPEED;
+                    if (this.x < -20) {
+                        this.y = FLOOR_Y_1; this.x = CANVAS_W - 50; this.grounded = true; this.falling = false;
+                    }
                 }
+                this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             } else {
                 this.x += BOSS_MOVE_SPEED * this.dir;
-                // 决定释放技能
-                if (dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
+                // 决定释放技能（玩家跳跃中不发动攻击）
+                if (!playerJumping && dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
                     this.state = 'attack'; this._atkHit1 = false; this._atkHit2 = false;
                     this.currentAnim = this.anims.attack; this.currentAnim.reset();
-                } else if (dist > 200 && this.dashCooldown <= 0 && Math.random() < 0.2) {
-                    this.state = 'dash'; this.dashStartX = this.x;
-                    this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                } else if (this.dashCooldown <= 0 && Math.random() < 0.15) {
+                    if (dist >= DASH_MIN_RANGE) {
+                        // 够远，直接冲刺
+                        this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
+                        this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                    } else {
+                        // 太近，先后退拉开距离
+                        this.state = 'retreat';
+                    }
                 } else {
                     this.currentAnim = this.anims.move; this.currentAnim.update(dt);
                 }
