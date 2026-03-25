@@ -590,6 +590,8 @@ class SkeletonKnight {
     }
     takeHit(dmg, isCrit) {
         if (this.dead || this.dying) return;
+        // 狂暴状态免伤30%
+        if (this.rageUsed) dmg = Math.round(dmg * 0.7);
         this.hp -= dmg; this.flashTimer = 0.5;
         addFloatingText(this.x, this.y - 160, dmg, isCrit);
         if (this.hp <= 0) {
