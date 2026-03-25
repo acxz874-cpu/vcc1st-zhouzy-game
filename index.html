@@ -2,6 +2,8 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>像素地牢 · 法师清怪</title>
 <style>
@@ -109,10 +111,11 @@ const GAP_LEFT = 448;
 const GAP_RIGHT = 520;
 
 // ===== 资源加载 =====
+const ASSET_VER = '5';  // 素材版本号，更新后递增以破坏缓存
 const assets = {};
 const toLoad = [];
 
-function regImg(key, src) { toLoad.push({ key, src }); }
+function regImg(key, src) { toLoad.push({ key, src: src + '?v=' + ASSET_VER }); }
 
 // 法师序列帧
 for (let i = 1; i <= 6; i++) regImg(`mage-idle-${i}`, `assets/sprites/mage-idle/${i}.png`);
