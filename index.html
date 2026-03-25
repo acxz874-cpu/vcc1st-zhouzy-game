@@ -557,6 +557,10 @@ class SkeletonKnight {
         this.flashTimer = 0; this.atkCooldown = 2.0; this.dashCooldown = 5.0;
         this._atkHit1 = false; this._atkHit2 = false;
         this.dashStartX = 0;
+        // 追击节奏：追几秒→停几秒→再追
+        this.chaseTimer = 3.0;   // 追击持续时间
+        this.pauseTimer = 0;     // 停顿计时
+        this.pausing = false;    // 是否在停顿中
         // 狂暴模式
         this.rageUsed = false;
         this.ragePhase = 'none'; // none|warning|dashing
@@ -581,6 +585,7 @@ class SkeletonKnight {
         this.state = 'dash'; this.dashStartX = this.x;
         this.currentAnim = this.anims.dash; this.currentAnim.reset();
         this.atkCooldown = 2.0; this.dashCooldown = 6.0;
+        this.chaseTimer = 3.0; this.pauseTimer = 0; this.pausing = false;
         this.rageUsed = false; this.ragePhase = 'none'; this.rageDashCount = 0;
     }
     takeHit(dmg, isCrit) {
@@ -753,22 +758,48 @@ class SkeletonKnight {
                 }
                 this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             } else {
-                this.x += BOSS_MOVE_SPEED * this.dir;
-                // 决定释放技能（玩家跳跃中不发动攻击）
-                if (!playerJumping && dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
-                    this.state = 'attack'; this._atkHit1 = false; this._atkHit2 = false;
-                    this.currentAnim = this.anims.attack; this.currentAnim.reset();
-                } else if (this.dashCooldown <= 0 && Math.random() < 0.15) {
-                    if (dist >= DASH_MIN_RANGE) {
-                        // 够远，直接冲刺
-                        this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
-                        this.currentAnim = this.anims.dash; this.currentAnim.reset();
-                    } else {
-                        // 太近，先后退拉开距离
-                        this.state = 'retreat';
+                // 追击-停顿节奏
+                if (this.pausing) {
+                    // 停顿中：原地播放移动动画，不追击
+                    this.pauseTimer -= dt;
+                    this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+                    if (this.pauseTimer <= 0) {
+                        this.pausing = false;
+                        this.chaseTimer = 2.5 + Math.random() * 2; // 下次追击2.5~4.5秒
+                    }
+                    // 停顿期间仍可释放冲刺技能
+                    if (this.dashCooldown <= 0 && Math.random() < 0.15) {
+                        this.pausing = false;
+                        if (dist >= DASH_MIN_RANGE) {
+                            this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
+                            this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                        } else {
+                            this.state = 'retreat';
+                        }
                     }
                 } else {
-                    this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+                    // 追击中
+                    this.chaseTimer -= dt;
+                    this.x += BOSS_MOVE_SPEED * this.dir;
+                    // 追击时间到 → 进入停顿
+                    if (this.chaseTimer <= 0) {
+                        this.pausing = true;
+                        this.pauseTimer = 1.5 + Math.random() * 1.5; // 停顿1.5~3秒
+                    }
+                    // 决定释放技能（玩家跳跃中不发动攻击）
+                    if (!playerJumping && dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
+                        this.state = 'attack'; this._atkHit1 = false; this._atkHit2 = false;
+                        this.currentAnim = this.anims.attack; this.currentAnim.reset();
+                    } else if (this.dashCooldown <= 0 && Math.random() < 0.15) {
+                        if (dist >= DASH_MIN_RANGE) {
+                            this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
+                            this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                        } else {
+                            this.state = 'retreat';
+                        }
+                    } else {
+                        this.currentAnim = this.anims.move; this.currentAnim.update(dt);
+                    }
                 }
             }
             if (this.x < 30) this.x = 30;
