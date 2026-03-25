@@ -161,13 +161,23 @@ window.addEventListener('keyup', e => { keys[e.code] = false; });
 let mouseClicked = false;
 window.addEventListener('mousedown', () => { mouseClicked = true; });
 
+function consumeKey(code) {
+    if (justPressed[code]) { justPressed[code] = false; return true; }
+    return false;
+}
+
+// ===== Canvas =====
+const cvs = document.getElementById('game');
+const ctx = cvs.getContext('2d');
+cvs.width = CANVAS_W;
+cvs.height = CANVAS_H;
+
 // ===== 触控支持 =====
 const isTouchDevice = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
 if (isTouchDevice) {
     document.getElementById('touch-controls').style.display = 'block';
 }
 
-// 触控按钮绑定（支持多点触控）
 document.querySelectorAll('.touch-btn').forEach(btn => {
     const keyCode = btn.dataset.key;
 
@@ -190,7 +200,6 @@ document.querySelectorAll('.touch-btn').forEach(btn => {
     });
 });
 
-// 画布触摸开始游戏/重试（标题和失败界面）
 cvs.addEventListener('touchstart', e => {
     e.preventDefault();
     if (game.state === 'title') {
@@ -203,17 +212,6 @@ cvs.addEventListener('touchstart', e => {
         setTimeout(() => { keys['Space'] = false; }, 100);
     }
 }, { passive: false });
-
-function consumeKey(code) {
-    if (justPressed[code]) { justPressed[code] = false; return true; }
-    return false;
-}
-
-// ===== Canvas =====
-const cvs = document.getElementById('game');
-const ctx = cvs.getContext('2d');
-cvs.width = CANVAS_W;
-cvs.height = CANVAS_H;
 
 // ===== 精灵动画类 =====
 class SpriteAnim {
