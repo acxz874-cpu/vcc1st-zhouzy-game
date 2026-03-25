@@ -235,7 +235,7 @@ function drawFloatingTexts(ctx) {
     for (const ft of floatingTexts) {
         const alpha = Math.min(1, ft.life * 2);
         const sz = ft.isCrit ? 18 : 14;
-        const clr = ft.color ? ft.color.replace('1)', `${alpha})`) :
+        const clr = ft.color ? ft.color.replace(/,1\)$/, `,${alpha})`) :
             (ft.isCrit ? `rgba(255,60,60,${alpha})` : `rgba(255,255,255,${alpha})`);
         ctx.font = `bold ${sz}px "Microsoft YaHei",sans-serif`;
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -1010,7 +1010,7 @@ const game = {
         this.currentLayer = 1;
         player.x = 100; player.y = FLOOR_Y_1; player.reset();
         player.facing = 1; player.currentAnim = player.anims.idle;
-        projectiles.length = 0; floatingTexts.length = 0; potions.length = 0;
+        projectiles.length = 0; floatingTexts.length = 0; potions.length = 0; skillEffects.length = 0;
         this.bossPhase = 'inactive'; this.shakeTimer = 0;
         this.sceneTransition = 0; this.fallingDebris = [];
         this.boss.active = false; this.boss.dead = false; this.boss.dying = false;
