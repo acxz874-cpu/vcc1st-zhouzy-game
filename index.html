@@ -372,8 +372,9 @@ function updateSkillEffects(dt) {
             for (const t of targets) {
                 t.ref.takeHit(30, false);
                 // 击飞（给垂直速度，等同一段跳高度）
-                if (t.type === 'goblin') {
-                    // 哥布林没有vy系统，用floatingText模拟效果即可
+                if (t.type === 'goblin' && t.ref.grounded) {
+                    t.ref.grounded = false;
+                    t.ref.vy = JUMP_VELOCITY * 0.7;
                 }
                 if (t.type === 'boss' && t.ref.grounded) {
                     t.ref.grounded = false;
@@ -410,15 +411,16 @@ function drawSkillEffects(ctx) {
 // ===== 血瓶掉落系统 =====
 const potions = [];
 function spawnPotion(x, y) {
-    potions.push({ x, y, life: 15.0, collected: false });
+    potions.push({ x, y, life: 15.0, collected: false, age: 0 });
 }
 function updatePotions(dt) {
     for (let i = potions.length - 1; i >= 0; i--) {
         const p = potions[i];
         p.life -= dt;
+        p.age = (p.age || 0) + dt;
         if (p.life <= 0) { potions.splice(i, 1); continue; }
         // 玩家碰触检测
-        if (!p.collected && Math.abs(player.x - p.x) < 30 && Math.abs(player.y - p.y) < 30) {
+        if (!p.collected && Math.abs(player.x - p.x) < 40 && Math.abs(player.y - p.y) < 40) {
             p.collected = true;
             player.hp = Math.min(player.hp + 20, PLAYER_MAX_HP);
             potions.splice(i, 1);
@@ -429,16 +431,70 @@ function drawPotions(ctx) {
     for (const p of potions) {
         // 最后2秒闪烁
         if (p.life < 2.0 && Math.floor(p.life * 6) % 2 === 0) continue;
-        const px = p.x, py = p.y;
-        // 像素风红色药瓶
+        const px = p.x;
+        // 上下浮动动画
+        const floatY = p.y + Math.sin((p.age || 0) * 3) * 3;
+        const py = floatY;
+
+        ctx.save();
+        // 地面光晕
+        ctx.fillStyle = 'rgba(255, 80, 80, 0.25)';
+        ctx.beginPath();
+        ctx.ellipse(px, p.y + 2, 10, 3, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // === 像素风药瓶（放大版）===
+        // 深色描边轮廓
+        ctx.fillStyle = '#4a0808';
+        ctx.fillRect(px - 5, py - 34, 10, 3);   // 瓶口轮廓
+        ctx.fillRect(px - 9, py - 31, 18, 2);   // 瓶肩轮廓
+        ctx.fillRect(px - 10, py - 29, 20, 22);  // 瓶身轮廓
+        ctx.fillRect(px - 11, py - 8, 22, 3);   // 瓶底轮廓
+
+        // 瓶口（灰色）
+        ctx.fillStyle = '#888888';
+        ctx.fillRect(px - 4, py - 33, 8, 2);
+        // 木塞（棕色）
+        ctx.fillStyle = '#8B5E3C';
+        ctx.fillRect(px - 3, py - 31, 6, 2);
+        ctx.fillStyle = '#A0724B';
+        ctx.fillRect(px - 2, py - 31, 2, 2);
+
+        // 瓶肩过渡
         ctx.fillStyle = '#cc2222';
-        ctx.fillRect(px - 5, py - 16, 10, 12);  // 瓶身
-        ctx.fillStyle = '#aa1111';
-        ctx.fillRect(px - 3, py - 20, 6, 4);    // 瓶口
-        ctx.fillStyle = '#ffaaaa';
-        ctx.fillRect(px - 3, py - 14, 3, 4);    // 高光
-        ctx.fillStyle = '#882222';
-        ctx.fillRect(px - 6, py - 5, 12, 2);    // 瓶底
+        ctx.fillRect(px - 7, py - 29, 14, 2);
+
+        // 瓶身主体（渐变红色）
+        ctx.fillStyle = '#dd2222';
+        ctx.fillRect(px - 8, py - 27, 16, 8);   // 上半
+        ctx.fillStyle = '#bb1a1a';
+        ctx.fillRect(px - 8, py - 19, 16, 8);   // 下半
+        ctx.fillStyle = '#991515';
+        ctx.fillRect(px - 8, py - 11, 16, 3);   // 底部深色
+
+        // 液面高光线
+        ctx.fillStyle = '#ff6666';
+        ctx.fillRect(px - 6, py - 27, 12, 1);
+
+        // 瓶身高光（左侧亮带）
+        ctx.fillStyle = 'rgba(255, 200, 200, 0.6)';
+        ctx.fillRect(px - 6, py - 26, 3, 14);
+        // 瓶身白色高光点
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.fillRect(px - 5, py - 25, 2, 3);
+
+        // 瓶底座
+        ctx.fillStyle = '#773333';
+        ctx.fillRect(px - 9, py - 8, 18, 2);
+        ctx.fillStyle = '#664444';
+        ctx.fillRect(px - 8, py - 6, 16, 1);
+
+        // 十字标记（白色，标识为治疗药水）
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.7)';
+        ctx.fillRect(px - 1, py - 24, 2, 8);
+        ctx.fillRect(px - 4, py - 21, 8, 2);
+
+        ctx.restore();
     }
 }
 
@@ -448,6 +504,7 @@ const player = {
     facing:1, state:'idle', grounded:true, falling:false,
     jumpCount:0, doubleJumping:false,
     skillCooldown:0, // 技能冷却
+    airAttacking:false, // 空中攻击标志
     anims:{}, currentAnim:null,
     attackHitChecked:false, idleCooldown:5.0, idlePlaying:false, hurtFlashTimer:0,
 
@@ -460,7 +517,7 @@ const player = {
     },
     reset() {
         this.hp = PLAYER_MAX_HP; this.vy = 0; this.grounded = true; this.falling = false;
-        this.jumpCount = 0; this.doubleJumping = false; this.skillCooldown = 0;
+        this.jumpCount = 0; this.doubleJumping = false; this.skillCooldown = 0; this.airAttacking = false;
         this.state = 'idle'; this.hurtFlashTimer = 0; this.idleCooldown = 5.0; this.idlePlaying = false;
     },
     takeDamage(dmg) {
@@ -480,6 +537,10 @@ const player = {
         if (this.state === 'attack' && this.anims.attack.done) {
             this.state = this.grounded ? 'idle' : 'jump';
             this.idleCooldown = 5.0; this.idlePlaying = false;
+        }
+        // 空中攻击动画结束
+        if (this.airAttacking && this.anims.attack.done) {
+            this.airAttacking = false;
         }
 
         // 跌落（二层→一层）
@@ -505,7 +566,7 @@ const player = {
                     game.currentLayer = 1; this.falling = true; this.grounded = false;
                 } else {
                     this.y = floorY; this.vy = 0; this.grounded = true;
-                    this.jumpCount = 0; this.doubleJumping = false;
+                    this.jumpCount = 0; this.doubleJumping = false; this.airAttacking = false;
                     if (this.state === 'jump') this.state = 'idle';
                 }
             }
@@ -543,9 +604,16 @@ const player = {
                 }
             }
 
-            if (consumeKey('KeyJ') || mouseClicked) {
-                mouseClicked = false; this.state = 'attack';
-                this.currentAnim = this.anims.attack; this.currentAnim.reset(); this.attackHitChecked = false;
+            if ((consumeKey('KeyJ') || mouseClicked) && !this.airAttacking) {
+                mouseClicked = false;
+                if (this.grounded) {
+                    // 地面攻击：切换到attack状态
+                    this.state = 'attack';
+                } else {
+                    // 空中攻击：保持jump状态，设标志
+                    this.airAttacking = true;
+                }
+                this.anims.attack.reset(); this.attackHitChecked = false;
             } else if (this.grounded && this.state !== 'jump') {
                 this.state = moving ? 'move' : 'idle';
             }
@@ -563,11 +631,18 @@ const player = {
                 if (this.anims.idle.done) { this.idlePlaying = false; this.idleCooldown = 5.0; }
             }
         } else if (this.state === 'move') { this.currentAnim = this.anims.move; this.currentAnim.update(dt); }
-        else if (this.state === 'attack') { this.currentAnim.update(dt); }
-        else if (this.state === 'jump') { this.currentAnim = this.anims.jump; this.currentAnim.update(dt); }
+        else if (this.state === 'attack') { this.currentAnim = this.anims.attack; this.currentAnim.update(dt); }
+        else if (this.state === 'jump') {
+            if (this.airAttacking) {
+                // 空中攻击：显示攻击动画
+                this.currentAnim = this.anims.attack; this.currentAnim.update(dt);
+            } else {
+                this.currentAnim = this.anims.jump; this.currentAnim.update(dt);
+            }
+        }
 
-        // 发射弹射物
-        if (this.state === 'attack' && !this.attackHitChecked && this.anims.attack.idx >= 4) {
+        // 发射弹射物（地面攻击或空中攻击）
+        if ((this.state === 'attack' || this.airAttacking) && !this.attackHitChecked && this.anims.attack.idx >= 4) {
             this.attackHitChecked = true;
             spawnProjectile(this.x + this.facing * 30, this.y - 60, this.facing);
         }
@@ -589,7 +664,8 @@ const player = {
 // ===== 哥布林 =====
 class Goblin {
     constructor(x, y, patrolMin, patrolMax) {
-        this.x = x; this.y = y; this.patrolMin = patrolMin; this.patrolMax = patrolMax;
+        this.x = x; this.y = y; this.baseY = y; this.vy = 0; this.grounded = true;
+        this.patrolMin = patrolMin; this.patrolMax = patrolMax;
         this.dir = 1; this.hp = GOBLIN_MAX_HP;
         this.dead = false; this.dying = false; this.inCombat = false;
         this.flashTimer = 0; this.atkCooldown = 0; this.isAttacking = false;
@@ -605,6 +681,10 @@ class Goblin {
         if (this.dead||this.dying) return;
         this.hp -= dmg; this.flashTimer = 1.0; this.inCombat = true;
         addFloatingText(this.x, this.y-100, dmg, isCrit);
+        // 击退效果（始终远离玩家）
+        const knockDir = this.x >= player.x ? 1 : -1;
+        this.x += knockDir * 15;
+        this.x = Math.max(30, Math.min(CANVAS_W - 30, this.x));
         if (this.hp <= 0) {
             this.hp = 0; this.dying = true; this.isAttacking = false;
             this.currentAnim = this.anims.death; this.currentAnim.reset();
@@ -618,9 +698,17 @@ class Goblin {
         if (this.dying) { this.currentAnim.update(dt); if (this.currentAnim.done) this.dead = true; return; }
         if (this.flashTimer > 0) this.flashTimer -= dt;
         if (this.frozenTimer > 0) this.frozenTimer -= dt;
+        // 垂直物理（击飞）
+        if (!this.grounded) {
+            this.vy += GRAVITY; this.y += this.vy;
+            if (this.y >= this.baseY) {
+                this.y = this.baseY; this.vy = 0; this.grounded = true;
+            }
+            return; // 空中时不执行AI
+        }
         const speedMult = this.frozenTimer > 0 ? 0.7 : 1.0; // 冰冻减速30%
         if (this.atkCooldown > 0) this.atkCooldown -= dt;
-        const myLayer = this.y === FLOOR_Y_1 ? 1 : 2;
+        const myLayer = this.baseY === FLOOR_Y_1 ? 1 : 2;
         const playerHere = game.currentLayer === myLayer;
         if (!playerHere) {
             if (this.isAttacking) { this.isAttacking = false; this.currentAnim = this.anims.move; this.currentAnim.reset(); }
@@ -641,7 +729,7 @@ class Goblin {
                 this.currentAnim = this.anims.attack; this.currentAnim.reset();
             } else {
                 this.dir = dx>0?1:-1; this.x += GOBLIN_CHASE_SPEED*speedMult*this.dir;
-                if (this.y === FLOOR_Y_2 && this.x > GAP_LEFT-20 && this.x < GAP_RIGHT+20)
+                if (this.baseY === FLOOR_Y_2 && this.x > GAP_LEFT-20 && this.x < GAP_RIGHT+20)
                     this.x = this.dir===1 ? GAP_LEFT-20 : GAP_RIGHT+20;
                 this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             }
@@ -719,7 +807,11 @@ class SkeletonKnight {
     }
     init() {
         this.anims.move = new SpriteAnim(Array.from({length:4},(_,i)=>assets[`boss-move-${i+1}`]),6);
-        this.anims.dash = new SpriteAnim(Array.from({length:9},(_,i)=>assets[`boss-dash-${i+1}`]),12);
+        // 冲刺只循环残影帧（4-7）
+        this.anims.dash = new SpriteAnim([4,5,6,7].map(i=>assets[`boss-dash-${i}`]),12);
+        // 冲刺起手（1-3）和收刀（8-9）
+        this.anims.dashStart = new SpriteAnim([1,2,3].map(i=>assets[`boss-dash-${i}`]),10,false);
+        this.anims.dashEnd = new SpriteAnim([8,9].map(i=>assets[`boss-dash-${i}`]),10,false);
         this.anims.attack = new SpriteAnim(Array.from({length:4},(_,i)=>assets[`boss-attack-${i+1}`]),5,false);
         this.currentAnim = this.anims.move;
     }
@@ -729,8 +821,8 @@ class SkeletonKnight {
         this.x = CANVAS_W + 80; this.dir = -1;
         this.grounded = true; this.falling = false; this.vy = 0;
         // 以冲刺入场
-        this.state = 'dash'; this.dashStartX = this.x;
-        this.currentAnim = this.anims.dash; this.currentAnim.reset();
+        this.state = 'dashStart'; this.dashStartX = this.x;
+        this.currentAnim = this.anims.dashStart; this.currentAnim.reset();
         this.atkCooldown = 2.0; this.dashCooldown = 6.0;
         this.chaseTimer = 3.0; this.pauseTimer = 0; this.pausing = false;
         this.frozenTimer = 0;
@@ -742,6 +834,10 @@ class SkeletonKnight {
         if (this.rageUsed) dmg = Math.round(dmg * 0.7);
         this.hp -= dmg; this.flashTimer = 0.5;
         addFloatingText(this.x, this.y - 160, dmg, isCrit);
+        // 击退效果（始终远离玩家）
+        const knockDir = this.x >= player.x ? 1 : -1;
+        this.x += knockDir * 8;
+        this.x = Math.max(30, Math.min(CANVAS_W - 30, this.x));
         if (this.hp <= 0) {
             this.hp = 0; this.dying = true; this.state = 'dying';
             // 用move动画最后一帧表示死亡（无专属死亡帧）
@@ -807,25 +903,27 @@ class SkeletonKnight {
             return; // 警告期间不执行其他逻辑
         }
         if (this.ragePhase === 'dashing') {
-            if (this.state !== 'dash' && this.state !== 'retreat') {
+            const isDashing = this.state === 'dash' || this.state === 'dashStart' || this.state === 'dashEnd';
+            if (!isDashing && this.state !== 'retreat') {
                 this.rageDashDelay -= dt;
                 if (this.rageDashDelay <= 0 && this.rageDashCount < 3) {
                     this.rageDashCount++;
                     this._dashHitDone = false;
                     const rdx = player.x - this.x;
                     if (Math.abs(rdx) >= 250) {
-                        this.state = 'dash'; this.dashStartX = this.x;
+                        this.state = 'dashStart'; this.dashStartX = this.x;
                         this.dir = rdx > 0 ? 1 : -1;
-                        this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                        this.currentAnim = this.anims.dashStart; this.currentAnim.reset();
                     } else {
                         this.state = 'retreat';
                     }
                 }
-                if (this.rageDashCount >= 3 && this.state !== 'dash' && this.state !== 'retreat') {
+                const isDashingNow = this.state === 'dash' || this.state === 'dashStart' || this.state === 'dashEnd';
+                if (this.rageDashCount >= 3 && !isDashingNow && this.state !== 'retreat') {
                     this.ragePhase = 'none'; this.dashCooldown = 5.0;
                 }
                 // 等待间隔期间播放移动动画，不执行后续逻辑
-                if (this.state !== 'dash' && this.state !== 'retreat') {
+                if (!isDashingNow && this.state !== 'retreat') {
                     this.currentAnim = this.anims.move; this.currentAnim.update(dt);
                     return;
                 }
@@ -836,12 +934,20 @@ class SkeletonKnight {
         const dist = Math.abs(dx);
         const playerJumping = !player.grounded;
         // 冲刺中不改变方向（直线移动），距离太近时保持原方向不翻转
-        if (this.state !== 'dash' && Math.abs(dx) > 15) this.dir = dx > 0 ? 1 : -1;
+        if (this.state !== 'dash' && this.state !== 'dashStart' && this.state !== 'dashEnd' && Math.abs(dx) > 15) this.dir = dx > 0 ? 1 : -1;
 
         const DASH_DIST = CANVAS_W * 0.5; // 冲刺固定半个地图宽度
         const DASH_MIN_RANGE = 250; // BOSS需要离玩家至少250px才会冲刺
 
-        if (this.state === 'dash') {
+        if (this.state === 'dashStart') {
+            // 冲刺起手动画（1-3帧），播完进入冲刺
+            this.currentAnim.update(dt);
+            if (this.currentAnim.done) {
+                this.state = 'dash';
+                this.currentAnim = this.anims.dash; this.currentAnim.reset();
+            }
+
+        } else if (this.state === 'dash') {
             // 冲刺移动（固定距离，不因命中停止）
             this.x += BOSS_DASH_SPEED * this.dir;
             this.currentAnim = this.anims.dash; this.currentAnim.update(dt);
@@ -850,15 +956,23 @@ class SkeletonKnight {
                 this._dashHitDone = true;
                 player.takeDamage(BOSS_DASH_DMG);
             }
-            // 冲刺结束：固定距离或到边界
+            // 冲刺结束：固定距离或到边界 → 播收刀动画
             if (Math.abs(this.x - this.dashStartX) >= DASH_DIST || this.x <= 30 || this.x >= CANVAS_W - 30) {
+                this.state = 'dashEnd';
+                this.currentAnim = this.anims.dashEnd; this.currentAnim.reset();
+            }
+            if (this.x < 30) this.x = 30;
+            if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
+
+        } else if (this.state === 'dashEnd') {
+            // 冲刺收刀动画（8-9帧），播完回到move
+            this.currentAnim.update(dt);
+            if (this.currentAnim.done) {
                 this.state = 'move';
                 if (this.ragePhase === 'dashing') this.rageDashDelay = 0.5;
                 else this.dashCooldown = 5.0;
                 this.currentAnim = this.anims.move;
             }
-            if (this.x < 30) this.x = 30;
-            if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
 
         } else if (this.state === 'attack') {
             this.currentAnim.update(dt);
@@ -883,9 +997,9 @@ class SkeletonKnight {
             this.currentAnim = this.anims.move; this.currentAnim.update(dt);
             if (dist >= DASH_MIN_RANGE || this.x <= 30 || this.x >= CANVAS_W - 30) {
                 // 足够远了，发动冲刺
-                this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
+                this.state = 'dashStart'; this.dashStartX = this.x; this._dashHitDone = false;
                 this.dir = dx > 0 ? 1 : -1;
-                this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                this.currentAnim = this.anims.dashStart; this.currentAnim.reset();
             }
             if (this.x < 30) this.x = 30;
             if (this.x > CANVAS_W - 30) this.x = CANVAS_W - 30;
@@ -923,8 +1037,8 @@ class SkeletonKnight {
                     if (this.dashCooldown <= 0 && Math.random() < 0.15) {
                         this.pausing = false;
                         if (dist >= DASH_MIN_RANGE) {
-                            this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
-                            this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                            this.state = 'dashStart'; this.dashStartX = this.x; this._dashHitDone = false;
+                            this.currentAnim = this.anims.dashStart; this.currentAnim.reset();
                         } else {
                             this.state = 'retreat';
                         }
@@ -936,7 +1050,7 @@ class SkeletonKnight {
                     // 追击时间到 → 进入停顿
                     if (this.chaseTimer <= 0) {
                         this.pausing = true;
-                        this.pauseTimer = 1.5 + Math.random() * 1.5; // 停顿1.5~3秒
+                        this.pauseTimer = 0.5 + Math.random() * 0.8; // 停顿0.5~1.3秒
                     }
                     // 决定释放技能（玩家跳跃中不发动攻击）
                     if (!playerJumping && dist < BOSS_ATK_RANGE && this.atkCooldown <= 0) {
@@ -944,8 +1058,8 @@ class SkeletonKnight {
                         this.currentAnim = this.anims.attack; this.currentAnim.reset();
                     } else if (this.dashCooldown <= 0 && Math.random() < 0.15) {
                         if (dist >= DASH_MIN_RANGE) {
-                            this.state = 'dash'; this.dashStartX = this.x; this._dashHitDone = false;
-                            this.currentAnim = this.anims.dash; this.currentAnim.reset();
+                            this.state = 'dashStart'; this.dashStartX = this.x; this._dashHitDone = false;
+                            this.currentAnim = this.anims.dashStart; this.currentAnim.reset();
                         } else {
                             this.state = 'retreat';
                         }
